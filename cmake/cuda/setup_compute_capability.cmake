@@ -50,12 +50,10 @@ set(TORCH_CUDA_ARCH_LIST "")
 # Loop through each number in the list
 foreach(ARCH IN LISTS CMAKE_CUDA_ARCHITECTURES)
 
-  # Extract the first and second characters
-  string(SUBSTRING "${ARCH}" 0 1 FIRST_DIGIT)
-  string(SUBSTRING "${ARCH}" 1 1 SECOND_DIGIT)
-
-  # Concatenate with a dot in between
-  set(DOT_SEPARATED "${FIRST_DIGIT}.${SECOND_DIGIT}")
+# Handle both 2-digit (e.g. 86) and 3-digit (e.g. 120) architectures
+math(EXPR MAJOR "${ARCH} / 10")
+math(EXPR MINOR "${ARCH} % 10")
+set(DOT_SEPARATED "${MAJOR}.${MINOR}")
 
   # Append to the result list
   list(APPEND TORCH_CUDA_ARCH_LIST "${DOT_SEPARATED}")
