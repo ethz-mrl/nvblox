@@ -23,6 +23,7 @@ limitations under the License.
 #include "nvblox/dynamics/dynamics_detection.h"
 #include "nvblox/integrators/esdf_integrator.h"
 #include "nvblox/integrators/freespace_integrator.h"
+#include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/occupancy_decay_integrator.h"
 #include "nvblox/integrators/projective_appearance_integrator.h"
 #include "nvblox/integrators/projective_occupancy_integrator.h"
@@ -224,6 +225,11 @@ class Mapper : public MapperBase {
       const DepthImage& depth_frame,
       UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
 
+  // /// Updates the empty space blocks.
+  // /// @param update_full_layer Whether to update the full layer or only the
+  // /// blocks that require and update.
+  void updateEmptySpace(UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
+
   /// Updates the mesh blocks.
   /// @param update_full_layer Whether to update the full layer or only the
   /// blocks that require and update. Useful if loading a layer cake without a
@@ -282,6 +288,9 @@ class Mapper : public MapperBase {
 
   /// Return the serialized freespace layer.
   std::shared_ptr<SerializedFreespaceLayer> serializedFreespaceLayer();
+
+  /// Return the serialized empty space layer.
+  std::shared_ptr<SerializedEmptySpaceLayer> serializedEmptySpaceLayer();
 
   /// Updates the ESDF blocks.
   /// Note that currently we limit the Mapper class to calculating *either*
@@ -349,6 +358,11 @@ class Mapper : public MapperBase {
     return layers_.get<FreespaceLayer>();
   }
   /// Getter
+  ///@return const EmptyBlockLayer& empty space layer
+  const EmptyBlockLayer& empty_space_layer() const {
+    return layers_.get<EmptyBlockLayer>();
+  }
+  /// Getter
   ///@return const ColorLayer& Color layer
   const ColorLayer& color_layer() const { return layers_.get<ColorLayer>(); }
   /// Getter
@@ -385,6 +399,9 @@ class Mapper : public MapperBase {
   /// Getter
   ///@return FreespaceLayer& freespace layer
   FreespaceLayer& freespace_layer();
+    /// Getter
+  ///@return EmptyBlockLayer& empty space layer
+  EmptyBlockLayer& empty_space_layer();
   /// Getter
   ///@return ColorLayer& Color layer
   ColorLayer& color_layer();
@@ -421,6 +438,12 @@ class Mapper : public MapperBase {
   ///        updating the freespace layer according to a tsdf layer.
   const FreespaceIntegrator& freespace_integrator() const {
     return freespace_integrator_;
+  }
+  /// Getter
+  ///@return const EmptySpaceIntegrator& empty space integrator used for
+  ///        updating the empty space layer according to a tsdf layer.
+  const EmptySpaceIntegrator& empty_space_integrator() const {
+    return empty_space_integrator_;
   }
   /// Getter
   ///@return const ProjectiveTsdfIntegrator& TSDF integrator used for
@@ -490,6 +513,10 @@ class Mapper : public MapperBase {
   ///@return FreespaceIntegrator& freespace integrator used for
   ///        updating the freespace layer according to a tsdf layer.
   FreespaceIntegrator& freespace_integrator() { return freespace_integrator_; }
+  /// Getter
+  ///@return EmptySpaceIntegrator& empty space integrator used for
+  ///        updating the empty space layer according to a tsdf layer.
+  EmptySpaceIntegrator& empty_space_integrator() { return empty_space_integrator_; }
   /// Getter
   ///@return ProjectiveTsdfIntegrator& TSDF integrator used for
   ///        3D LiDAR scan integration.
@@ -683,7 +710,7 @@ class Mapper : public MapperBase {
       BlocksToUpdateType blocks_to_update_type,
       UpdateFullLayer update_full_layer) const;
 
-  /// @brief Deallocate blocks int the esdf, mesh and freespace layer.
+  /// @brief Deallocate blocks int the esdf, mesh, freespace and empty space layer.
   /// @param blocks_to_clear Vector of blocks to clear.
   void clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear);
 
@@ -705,7 +732,8 @@ class Mapper : public MapperBase {
   /// Integrators
   ProjectiveTsdfIntegrator tsdf_integrator_;
   ProjectiveTsdfIntegrator lidar_tsdf_integrator_;
-  FreespaceIntegrator freespace_integrator_;
+  FreespaceIntegrator freespace_integrator_; 
+  EmptySpaceIntegrator empty_space_integrator_;
   ProjectiveOccupancyIntegrator occupancy_integrator_;
   ProjectiveOccupancyIntegrator lidar_occupancy_integrator_;
   OccupancyDecayIntegrator occupancy_decay_integrator_;

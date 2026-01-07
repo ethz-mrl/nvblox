@@ -354,6 +354,31 @@ class MeshBlockLayer : public BlockLayer<MeshBlock<_AppearanceType>> {
   std::shared_ptr<MeshType> mesh_;
 };
 
+class EmptyBlockLayer : public BlockLayer<EmptyBlock> {
+ public:
+  typedef std::shared_ptr<EmptyBlockLayer> Ptr;
+  typedef std::shared_ptr<const EmptyBlockLayer> ConstPtr;
+
+  /// Constructor
+  /// @param block_size The side-length in meters of a block.
+  /// @param memory_pool_params Params governing where and how memory is
+  /// allocated.
+  EmptyBlockLayer(float block_size, BlockMemoryPoolParams memory_pool_params)
+      : BlockLayer<EmptyBlock>(block_size, memory_pool_params) {}
+  EmptyBlockLayer() = delete;
+  virtual ~EmptyBlockLayer() = default;
+
+  /// Use the inherited copyFrom() instead of copy constructors
+  EmptyBlockLayer(const EmptyBlockLayer& other) = delete;
+  EmptyBlockLayer(const EmptyBlockLayer& other,
+                  MemoryType memory_type) = delete;
+  EmptyBlockLayer& operator=(const EmptyBlockLayer& other) = delete;
+
+  /// Move operations
+  EmptyBlockLayer(EmptyBlockLayer&& other) = default;
+  EmptyBlockLayer& operator=(EmptyBlockLayer&& other) = default;
+};
+
 namespace traits {
 
 // Helpers for detecting if a type is a layer.

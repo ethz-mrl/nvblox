@@ -82,7 +82,8 @@ enum class LayerType : int {
   kFeatureMesh,
   kFreespace,
   kOccupancy,
-  kFeature
+  kFeature,
+  kEmptySpace
 };
 
 using LayerTypeBitMask = BitMask<LayerType>;
@@ -93,7 +94,7 @@ inline bool isAccessibleOnCPU(const MemoryType memory_type) {
 }
 
 // Which type of mapping to do.
-enum class ProjectiveLayerType { kTsdf, kTsdfWithFreespace, kOccupancy, kNone };
+enum class ProjectiveLayerType { kTsdf, kTsdfWithFreespace, kTsdfWithEmptySpace, kOccupancy, kNone };
 template <>
 inline std::string toString(const ProjectiveLayerType& layer_type) {
   switch (layer_type) {
@@ -102,6 +103,9 @@ inline std::string toString(const ProjectiveLayerType& layer_type) {
       break;
     case ProjectiveLayerType::kTsdfWithFreespace:
       return "kTsdfWithFreespace";
+      break;
+    case ProjectiveLayerType::kTsdfWithEmptySpace:
+      return "kTsdfWithEmptySpace";
       break;
     case ProjectiveLayerType::kOccupancy:
       return "kOccupancy";
@@ -119,7 +123,8 @@ inline std::string toString(const ProjectiveLayerType& layer_type) {
 /// Whether we are maintaining a tsdf layer.
 inline bool hasTsdfLayer(ProjectiveLayerType layer_type) {
   if (layer_type == ProjectiveLayerType::kTsdf ||
-      layer_type == ProjectiveLayerType::kTsdfWithFreespace) {
+      layer_type == ProjectiveLayerType::kTsdfWithFreespace ||
+      layer_type == ProjectiveLayerType::kTsdfWithEmptySpace) {
     return true;
   }
   return false;
@@ -128,6 +133,14 @@ inline bool hasTsdfLayer(ProjectiveLayerType layer_type) {
 /// Whether we are maintaining a freespace layer.
 inline bool hasFreespaceLayer(ProjectiveLayerType layer_type) {
   if (layer_type == ProjectiveLayerType::kTsdfWithFreespace) {
+    return true;
+  }
+  return false;
+}
+
+/// Whether we are maintaining an empty space layer.
+inline bool hasEmptySpaceLayer(ProjectiveLayerType layer_type) {
+  if (layer_type == ProjectiveLayerType::kTsdfWithEmptySpace) {
     return true;
   }
   return false;

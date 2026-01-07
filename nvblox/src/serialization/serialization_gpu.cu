@@ -267,4 +267,13 @@ template void LayerSerializerGpuInternal<FeatureMeshLayer, int>::serializeAsync(
         get_data_and_size,
     const CudaStream& cuda_stream);
 
+// Instantiation of serialize function for EmptySpace layer::bool
+template void LayerSerializerGpuInternal<EmptyBlockLayer, bool>::serializeAsync(
+    const EmptyBlockLayer& layer,
+    const std::vector<Index3D>& block_indices_to_serialize,
+    host_vector<bool>& serialized_output, host_vector<int32_t>& offsets_output,
+    std::function<std::pair<const bool*, int>(const EmptyBlock* block)>
+        get_data_and_size,
+    const CudaStream& cuda_stream);
+
 }  // namespace nvblox

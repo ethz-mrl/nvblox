@@ -101,4 +101,6 @@ constexpr size_t sizeInBytes(const VoxelBlock<VoxelType>*) {
   return sizeof(VoxelBlock<VoxelType>);
 }
 
+constexpr size_t sizeInBytes(const EmptyBlock*) { return sizeof(EmptyBlock); }
+
 }  // namespace nvblox

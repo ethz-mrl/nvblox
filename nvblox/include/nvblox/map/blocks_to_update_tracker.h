@@ -28,6 +28,7 @@ enum class BlocksToUpdateType {
   kColorMesh,
   kFeatureMesh,
   kFreespace,
+  kEmptySpace,
   kLayerStreamer
 };
 
@@ -62,11 +63,12 @@ class BlocksToUpdateTracker {
 
   /// These collections keep track of the blocks which need to be updated on
   /// the next calls to updateFreespace(), updateEsdf(), updateColorMesh(),
-  /// updateFeatureMesh(), serializeLayers() respectively.
+  /// updateFeatureMesh(), updateEmptySpace(), serializeLayers() respectively.
   Index3DSet esdf_blocks_to_update_;
   Index3DSet color_mesh_blocks_to_update_;
   Index3DSet feature_mesh_blocks_to_update_;
   Index3DSet freespace_blocks_to_update_;
+  Index3DSet empty_space_blocks_to_update_;
   Index3DSet layer_streamer_blocks_to_update_;
 
   // Object to synchronize async functions (initialize to valid)

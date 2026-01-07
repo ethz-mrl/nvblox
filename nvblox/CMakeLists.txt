@@ -55,6 +55,7 @@ add_nvblox_static_library(
   src/gpu_hash/tsdf_layer_specialization.cu
   src/gpu_hash/feature_layer_specialization.cu
   src/gpu_hash/freespace_layer_specialization.cu
+  src/gpu_hash/empty_space_layer_specialization.cu
   src/gpu_hash/esdf_layer_specialization.cu
   src/gpu_hash/color_layer_specialization.cu
   src/gpu_hash/occupancy_layer_specialization.cu
@@ -104,6 +105,7 @@ add_nvblox_shared_library(
   src/integrators/projective_tsdf_integrator.cu
   src/integrators/projective_appearance_integrator.cu
   src/integrators/freespace_integrator.cu
+  src/integrators/empty_space_integrator.cu
   src/integrators/esdf_integrator.cu
   src/integrators/esdf_slicer.cu
   src/integrators/viewpoint.cpp
@@ -130,6 +132,7 @@ add_nvblox_shared_library(
   src/serialization/mesh_serializer_gpu.cu
   src/serialization/serialization_gpu.cu
   src/serialization/mesh_serializer_gpu.cu
+  src/serialization/empty_space_serializer_gpu.cu
   src/semantics/image_masker.cu
   src/semantics/image_projector.cu
   src/semantics/mask_from_detections.cu
