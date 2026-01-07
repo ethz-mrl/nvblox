@@ -22,7 +22,7 @@ namespace nvblox {
       void updateEmptySpaceLayer(
           const std::vector<Index3D>& block_indices_to_update,
           const TsdfLayer& tsdf_layer,
-          EmptyBlockLayer* empty_space_layer_ptr,
+          EmptySpaceLayer* empty_space_layer_ptr,
           float truncation_distance);
 
       // Parameter getters/setters as needed
@@ -36,8 +36,8 @@ namespace nvblox {
       device_vector<Index3D> block_indices_to_update_device_;
 
       // Block ptr buffers
-      host_vector<EmptyBlock*> empty_space_blocks_to_update_host_;
-      device_vector<EmptyBlock*> empty_space_blocks_to_update_device_;
+      host_vector<EmptySpaceBlock*> empty_space_blocks_to_update_host_;
+      device_vector<EmptySpaceBlock*> empty_space_blocks_to_update_device_;
       host_vector<const TsdfBlock*> tsdf_blocks_to_update_host_;
       device_vector<const TsdfBlock*> tsdf_blocks_to_update_device_;
   };

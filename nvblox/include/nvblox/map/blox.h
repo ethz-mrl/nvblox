@@ -68,20 +68,20 @@ struct VoxelBlock {
 
 /// An empty block containing a bool indicating whether the space is empty /
 /// unoccupied / free.
-struct EmptyBlock {
-  using Ptr = unified_ptr<EmptyBlock>;
-  using ConstPtr = unified_ptr<const EmptyBlock>;
+struct EmptySpaceBlock {
+  using Ptr = unified_ptr<EmptySpaceBlock>;
+  using ConstPtr = unified_ptr<const EmptySpaceBlock>;
 
-  EmptyBlock(bool _is_empty = true) : is_empty(_is_empty) {}
+  EmptySpaceBlock(bool _is_empty = true) : is_empty(_is_empty) {}
 
   bool is_empty;
 
-  /// Allocate an EmptyBlock of a given memory type.
+  /// Allocate an EmptySpaceBlock of a given memory type.
   static Ptr allocateAsync(MemoryType memory_type,
                            const CudaStream& cuda_stream);
   static Ptr allocate(MemoryType memory_type);
   /// Initializes all the memory of the block to 0 by default.
-  static void initAsync(EmptyBlock* block_ptr, const MemoryType memory_type,
+  static void initAsync(EmptySpaceBlock* block_ptr, const MemoryType memory_type,
                         const CudaStream& cuda_stream);
 };
 
@@ -90,8 +90,8 @@ struct EmptyBlock {
 /// typically allocated as a GPU pointers)
 template <typename VoxelType>
 constexpr size_t sizeInBytes(const VoxelBlock<VoxelType>*);
-/// Return the size in bytes of an EmptyBlock.
-constexpr size_t sizeInBytes(const EmptyBlock*);
+/// Return the size in bytes of an EmptySpaceBlock.
+constexpr size_t sizeInBytes(const EmptySpaceBlock*);
 
 // Initialization Utility Functions
 /// Set all the memory of the block to 0 on the GPU.

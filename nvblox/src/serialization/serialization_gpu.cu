@@ -268,11 +268,11 @@ template void LayerSerializerGpuInternal<FeatureMeshLayer, int>::serializeAsync(
     const CudaStream& cuda_stream);
 
 // Instantiation of serialize function for EmptySpace layer::bool
-template void LayerSerializerGpuInternal<EmptyBlockLayer, bool>::serializeAsync(
-    const EmptyBlockLayer& layer,
+template void LayerSerializerGpuInternal<EmptySpaceLayer, bool>::serializeAsync(
+    const EmptySpaceLayer& layer,
     const std::vector<Index3D>& block_indices_to_serialize,
     host_vector<bool>& serialized_output, host_vector<int32_t>& offsets_output,
-    std::function<std::pair<const bool*, int>(const EmptyBlock* block)>
+    std::function<std::pair<const bool*, int>(const EmptySpaceBlock* block)>
         get_data_and_size,
     const CudaStream& cuda_stream);
 

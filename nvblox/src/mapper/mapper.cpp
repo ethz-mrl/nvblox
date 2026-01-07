@@ -48,12 +48,12 @@ Mapper::Mapper(float voxel_size_m,
       blocks_to_update_tracker_(projective_layer_type) {
   layers_ = LayerCake::create<TsdfLayer, ColorLayer, FeatureLayer,
                               FreespaceLayer, OccupancyLayer, EsdfLayer,
-                              ColorMeshLayer, FeatureMeshLayer, EmptyBlockLayer>(
+                              ColorMeshLayer, FeatureMeshLayer, EmptySpaceLayer>(
       voxel_size_m_, block_memory_pool_params);
   layer_streamers_ =
       LayerCakeStreamer::create<TsdfLayer, ColorLayer, FeatureLayer,
                                 FreespaceLayer, OccupancyLayer, EsdfLayer,
-                                ColorMeshLayer, FeatureMeshLayer, EmptyBlockLayer>();
+                                ColorMeshLayer, FeatureMeshLayer, EmptySpaceLayer>();
   // Make the camera integrators share the same viewpoint cache.
   shareViewpointCaches(&tsdf_integrator_, &occupancy_integrator_,
                        &color_integrator_, &feature_integrator_);
@@ -295,8 +295,8 @@ FreespaceLayer& Mapper::freespace_layer() {
   return *ptr;
 }
 
-EmptyBlockLayer& Mapper::empty_space_layer() {
-  auto ptr = layers_.getPtr<EmptyBlockLayer>();
+EmptySpaceLayer& Mapper::empty_space_layer() {
+  auto ptr = layers_.getPtr<EmptySpaceLayer>();
   CHECK_NOTNULL(ptr);
   return *ptr;
 }
@@ -589,12 +589,12 @@ void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
   empty_space_integrator_.updateEmptySpaceLayer(
       blocks_to_update, 
       layers_.get<TsdfLayer>(), 
-      layers_.getPtr<EmptyBlockLayer>(),
+      layers_.getPtr<EmptySpaceLayer>(),
       tsdf_integrator_.truncation_distance_vox());
 
   // Mark blocks as updated
   blocks_to_update_tracker_.markBlocksAsUpdated(BlocksToUpdateType::kEmptySpace);
-  layers_.getPtr<EmptyBlockLayer>()->updateGpuHash(*cuda_stream_);
+  layers_.getPtr<EmptySpaceLayer>()->updateGpuHash(*cuda_stream_);
 }
 
 template <typename AppearanceVoxelType>
@@ -797,7 +797,7 @@ void Mapper::clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear) {
   }
   // Clear the empty space blocks, if existent.
   if (hasEmptySpaceLayer(projective_layer_type_)) {
-    layers_.getPtr<EmptyBlockLayer>()->clearBlocksAsync(blocks_to_clear,
+    layers_.getPtr<EmptySpaceLayer>()->clearBlocksAsync(blocks_to_clear,
                                                         *cuda_stream_);
   }
 
@@ -1005,7 +1005,7 @@ std::shared_ptr<SerializedFreespaceLayer> Mapper::serializedFreespaceLayer() {
 }
 
 std::shared_ptr<SerializedEmptySpaceLayer> Mapper::serializedEmptySpaceLayer() {
-  return layer_streamers_.getSerializedLayer<EmptyBlockLayer>();
+  return layer_streamers_.getSerializedLayer<EmptySpaceLayer>();
 }
 
 std::shared_ptr<SerializedEsdfLayer> Mapper::serializedEsdfLayer() {

@@ -48,7 +48,7 @@ class EmptySpaceSerializerGpu {
   /// @param block_indices_to_serialize  Requested block indices
   /// @param cuda_stream                 Cuda stream
   std::shared_ptr<SerializedEmptySpaceLayer> serialize(
-      const EmptyBlockLayer& empty_space_layer,
+      const EmptySpaceLayer& empty_space_layer,
       const std::vector<Index3D>& block_indices_to_serialize,
       const CudaStream& cuda_stream);
 
@@ -58,7 +58,7 @@ class EmptySpaceSerializerGpu {
   }
 
  private:
-  LayerSerializerGpuInternal<EmptyBlockLayer, bool> is_empty_flags_serializer_;
+  LayerSerializerGpuInternal<EmptySpaceLayer, bool> is_empty_flags_serializer_;
 
   std::shared_ptr<SerializedEmptySpaceLayer> serialized_empty_space_;
 };

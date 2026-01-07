@@ -358,9 +358,9 @@ class Mapper : public MapperBase {
     return layers_.get<FreespaceLayer>();
   }
   /// Getter
-  ///@return const EmptyBlockLayer& empty space layer
-  const EmptyBlockLayer& empty_space_layer() const {
-    return layers_.get<EmptyBlockLayer>();
+  ///@return const EmptySpaceLayer& empty space layer
+  const EmptySpaceLayer& empty_space_layer() const {
+    return layers_.get<EmptySpaceLayer>();
   }
   /// Getter
   ///@return const ColorLayer& Color layer
@@ -400,8 +400,8 @@ class Mapper : public MapperBase {
   ///@return FreespaceLayer& freespace layer
   FreespaceLayer& freespace_layer();
     /// Getter
-  ///@return EmptyBlockLayer& empty space layer
-  EmptyBlockLayer& empty_space_layer();
+  ///@return EmptySpaceLayer& empty space layer
+  EmptySpaceLayer& empty_space_layer();
   /// Getter
   ///@return ColorLayer& Color layer
   ColorLayer& color_layer();

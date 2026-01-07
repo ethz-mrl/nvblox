@@ -16,7 +16,7 @@ namespace nvblox {
     const Index3D* block_indices_to_update,
     int num_block_indices_to_update,
     const TsdfBlock** tsdf_blocks_to_update,
-    EmptyBlock** empty_space_blocks_to_update,
+    EmptySpaceBlock** empty_space_blocks_to_update,
     float truncation_distance
   ){
     if(blockIdx.x >= num_block_indices_to_update){
@@ -73,7 +73,7 @@ namespace nvblox {
   void EmptySpaceIntegrator::updateEmptySpaceLayer(
       const std::vector<Index3D>& block_indices_to_update,
       const TsdfLayer& tsdf_layer,
-      EmptyBlockLayer* empty_space_layer_ptr,
+      EmptySpaceLayer* empty_space_layer_ptr,
       float truncation_distance) {
     timing::Timer integration_timer("empty_space/integrate");
 

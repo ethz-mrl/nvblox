@@ -21,6 +21,6 @@ namespace nvblox {
 
 // GPULayer Template specialiations are slow to build. Therefore they are kept
 // in individual source files to allow for parallel compilation.
-template class GPULayerView<EmptyBlock>;
+template class GPULayerView<EmptySpaceBlock>;
 
 }  // namespace nvblox

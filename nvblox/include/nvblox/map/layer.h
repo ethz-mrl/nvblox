@@ -354,29 +354,29 @@ class MeshBlockLayer : public BlockLayer<MeshBlock<_AppearanceType>> {
   std::shared_ptr<MeshType> mesh_;
 };
 
-class EmptyBlockLayer : public BlockLayer<EmptyBlock> {
+class EmptySpaceLayer : public BlockLayer<EmptySpaceBlock> {
  public:
-  typedef std::shared_ptr<EmptyBlockLayer> Ptr;
-  typedef std::shared_ptr<const EmptyBlockLayer> ConstPtr;
+  typedef std::shared_ptr<EmptySpaceLayer> Ptr;
+  typedef std::shared_ptr<const EmptySpaceLayer> ConstPtr;
 
   /// Constructor
   /// @param block_size The side-length in meters of a block.
   /// @param memory_pool_params Params governing where and how memory is
   /// allocated.
-  EmptyBlockLayer(float block_size, BlockMemoryPoolParams memory_pool_params)
-      : BlockLayer<EmptyBlock>(block_size, memory_pool_params) {}
-  EmptyBlockLayer() = delete;
-  virtual ~EmptyBlockLayer() = default;
+  EmptySpaceLayer(float block_size, BlockMemoryPoolParams memory_pool_params)
+      : BlockLayer<EmptySpaceBlock>(block_size, memory_pool_params) {}
+  EmptySpaceLayer() = delete;
+  virtual ~EmptySpaceLayer() = default;
 
   /// Use the inherited copyFrom() instead of copy constructors
-  EmptyBlockLayer(const EmptyBlockLayer& other) = delete;
-  EmptyBlockLayer(const EmptyBlockLayer& other,
+  EmptySpaceLayer(const EmptySpaceLayer& other) = delete;
+  EmptySpaceLayer(const EmptySpaceLayer& other,
                   MemoryType memory_type) = delete;
-  EmptyBlockLayer& operator=(const EmptyBlockLayer& other) = delete;
+  EmptySpaceLayer& operator=(const EmptySpaceLayer& other) = delete;
 
   /// Move operations
-  EmptyBlockLayer(EmptyBlockLayer&& other) = default;
-  EmptyBlockLayer& operator=(EmptyBlockLayer&& other) = default;
+  EmptySpaceLayer(EmptySpaceLayer&& other) = default;
+  EmptySpaceLayer& operator=(EmptySpaceLayer&& other) = default;
 };
 
 namespace traits {

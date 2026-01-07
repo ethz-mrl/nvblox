@@ -67,7 +67,7 @@ struct SerializerTypeTrait<FreespaceLayer> {
 };
 
 template <>
-struct SerializerTypeTrait<EmptyBlockLayer> {
+struct SerializerTypeTrait<EmptySpaceLayer> {
   using type = EmptySpaceSerializerGpu;
 };
 
