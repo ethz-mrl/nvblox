@@ -119,4 +119,118 @@ void EmptySpaceIntegrator::updateEmptySpaceLayer(
   update_timer.Stop();
 }
 
+__global__ void getIndicesOfAllBlocksMarkedEmptyKernel(
+    int num_block_indices_to_check, Index3D* block_indices_to_check,
+    EmptySpaceBlock** empty_space_blocks_to_check,
+    Index3D* output_block_indices, int* output_count) {
+  const int block_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (block_idx >= num_block_indices_to_check) {
+    return;
+  }
+
+  // Check if this block is empty
+  const EmptySpaceBlock* block = empty_space_blocks_to_check[block_idx];
+  if (block != nullptr && block->is_empty) {
+    // Atomically add this block index to the output
+    const int idx = atomicAdd(output_count, 1);
+    if (idx <
+        num_block_indices_to_check) {  // Safety check to avoid out-of-bounds
+      output_block_indices[idx] = block_indices_to_check[block_idx];
+    }
+  }
+}
+
+std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
+    EmptySpaceLayer* empty_space_layer_ptr) {
+  timing::Timer index_fetching_timer("empty_space/get_empy_block_indices");
+
+  // Check inputs
+  CHECK_NOTNULL(empty_space_layer_ptr);
+
+  // For now, fetch indices of all blocks in the layer for the lookup.
+  const std::vector<Index3D> all_block_indices =
+      empty_space_layer_ptr->getAllBlockIndices();
+  const size_t num_all_block_indices = all_block_indices.size();
+
+  // Expand the buffers when needed
+  if (num_all_block_indices > block_indices_to_update_device_.capacity()) {
+    constexpr float kBufferExpansionFactor = 1.5f;
+    const int new_size =
+        static_cast<int>(kBufferExpansionFactor * num_all_block_indices);
+    block_indices_to_update_device_.reserveAsync(new_size, *cuda_stream_);
+    empty_space_blocks_to_update_device_.reserveAsync(new_size, *cuda_stream_);
+    tsdf_blocks_to_update_device_.reserveAsync(new_size, *cuda_stream_);
+  }
+
+  timing::Timer transfer_blocks_to_device_timer(
+      "empty_space/get_empy_block_indices/transfer_blocks_to_device");
+
+  // Transfer block indices
+  transferBlocksIndicesToDevice(all_block_indices, *cuda_stream_,
+                                &block_indices_to_update_host_,
+                                &block_indices_to_update_device_);
+
+  // Transfer block pointers
+  transferBlockPointersToDevice(all_block_indices, *cuda_stream_,
+                                empty_space_layer_ptr,
+                                &empty_space_blocks_to_update_host_,
+                                &empty_space_blocks_to_update_device_);
+
+  transfer_blocks_to_device_timer.Stop();
+
+  timing::Timer allocate_output_buffers(
+      "empty_space/get_empy_block_indices/"
+      "allocate_output_buffers");
+
+  device_vector<Index3D> output_indices_device;
+  output_indices_device.resizeAsync(num_all_block_indices, *cuda_stream_);
+
+  device_vector<int> output_count_device;
+  output_count_device.resizeAsync(1, *cuda_stream_);
+  output_count_device.setZeroAsync(*cuda_stream_);
+
+  host_vector<int> output_count_host(1, 0);
+
+  cuda_stream_->synchronize();
+  allocate_output_buffers.Stop();
+
+  timing::Timer fetching_timer("empty_space/get_empty_block_indices/fetch");
+
+  // Launch kernel
+  constexpr int kNumThreads = 512;
+  const int num_thread_blocks =
+      (num_all_block_indices + kNumThreads - 1) / kNumThreads;
+
+  getIndicesOfAllBlocksMarkedEmptyKernel<<<num_thread_blocks, kNumThreads>>>(
+      block_indices_to_update_device_.size(),
+      block_indices_to_update_device_.data(),
+      empty_space_blocks_to_update_device_.data(), output_indices_device.data(),
+      output_count_device.data());
+
+  checkCudaErrors(cudaPeekAtLastError());
+
+  output_count_device.copyToAsync(output_count_host.data(), *cuda_stream_);
+  cuda_stream_->synchronize();
+  fetching_timer.Stop();
+
+  const int num_empty = output_count_host[0];
+
+  // Copy non-empty indices back to host
+  std::vector<Index3D> resulting_empty_indices;
+  if (num_empty > 0) {
+    resulting_empty_indices =
+        output_indices_device.toVectorAsync(*cuda_stream_);
+    cuda_stream_->synchronize();
+
+    // Our device buffer for indices output_indices_device is initialized to
+    // full length with (0,0,0), which will also be copied into our return
+    // buffer. We need to truncate this vector to only contain actual empty
+    // indices.
+    resulting_empty_indices.resize(num_empty);
+  }
+
+  return resulting_empty_indices;
+}
+
 }  // namespace nvblox
