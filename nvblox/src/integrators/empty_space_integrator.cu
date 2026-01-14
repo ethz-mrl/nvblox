@@ -13,8 +13,7 @@ EmptySpaceIntegrator::EmptySpaceIntegrator(
     : cuda_stream_(cuda_stream) {}
 
 __global__ void updateEmptySpaceKernel(
-    const Index3D* block_indices_to_update, int num_block_indices_to_update,
-    const TsdfBlock** tsdf_blocks_to_update,
+    int num_block_indices_to_update, const TsdfBlock** tsdf_blocks_to_update,
     EmptySpaceBlock** empty_space_blocks_to_update, float truncation_distance) {
   if (blockIdx.x >= num_block_indices_to_update) {
     return;
@@ -50,7 +49,7 @@ __global__ void updateEmptySpaceKernel(
   }
 }
 
-void EmptySpaceIntegrator::launchKernel(float truncation_distance) {
+void EmptySpaceIntegrator::launchIntegrationKernel(float truncation_distance) {
   const dim3 kThreadsPerBlock(TsdfBlock::kVoxelsPerSide,
                               TsdfBlock::kVoxelsPerSide,
                               TsdfBlock::kVoxelsPerSide);
@@ -59,7 +58,6 @@ void EmptySpaceIntegrator::launchKernel(float truncation_distance) {
   // Launch Kernel for update
   updateEmptySpaceKernel<<<num_thread_blocks, kThreadsPerBlock, 0,
                            *cuda_stream_>>>(
-      block_indices_to_update_device_.data(),
       block_indices_to_update_device_.size(),
       tsdf_blocks_to_update_device_.data(),
       empty_space_blocks_to_update_device_.data(), truncation_distance);
@@ -115,7 +113,7 @@ void EmptySpaceIntegrator::updateEmptySpaceLayer(
   transfer_timer.Stop();
 
   timing::Timer update_timer("empty_space/integrate/update_blocks");
-  launchKernel(truncation_distance);
+  launchIntegrationKernel(truncation_distance);
 
   cuda_stream_->synchronize();
   update_timer.Stop();
