@@ -81,7 +81,8 @@ struct EmptySpaceBlock {
                            const CudaStream& cuda_stream);
   static Ptr allocate(MemoryType memory_type);
   /// Initializes all the memory of the block to 0 by default.
-  static void initAsync(EmptySpaceBlock* block_ptr, const MemoryType memory_type,
+  static void initAsync(EmptySpaceBlock* block_ptr,
+                        const MemoryType memory_type,
                         const CudaStream& cuda_stream);
 };
 

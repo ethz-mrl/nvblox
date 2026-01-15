@@ -21,9 +21,9 @@ limitations under the License.
 #include "nvblox/core/hash.h"
 #include "nvblox/core/parameter_tree.h"
 #include "nvblox/dynamics/dynamics_detection.h"
+#include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/esdf_integrator.h"
 #include "nvblox/integrators/freespace_integrator.h"
-#include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/occupancy_decay_integrator.h"
 #include "nvblox/integrators/projective_appearance_integrator.h"
 #include "nvblox/integrators/projective_occupancy_integrator.h"
@@ -228,7 +228,8 @@ class Mapper : public MapperBase {
   // /// Updates the empty space blocks.
   // /// @param update_full_layer Whether to update the full layer or only the
   // /// blocks that require and update.
-  void updateEmptySpace(UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
+  void updateEmptySpace(
+      UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
 
   /// Updates the mesh blocks.
   /// @param update_full_layer Whether to update the full layer or only the
@@ -399,7 +400,7 @@ class Mapper : public MapperBase {
   /// Getter
   ///@return FreespaceLayer& freespace layer
   FreespaceLayer& freespace_layer();
-    /// Getter
+  /// Getter
   ///@return EmptySpaceLayer& empty space layer
   EmptySpaceLayer& empty_space_layer();
   /// Getter
@@ -516,7 +517,9 @@ class Mapper : public MapperBase {
   /// Getter
   ///@return EmptySpaceIntegrator& empty space integrator used for
   ///        updating the empty space layer according to a tsdf layer.
-  EmptySpaceIntegrator& empty_space_integrator() { return empty_space_integrator_; }
+  EmptySpaceIntegrator& empty_space_integrator() {
+    return empty_space_integrator_;
+  }
   /// Getter
   ///@return ProjectiveTsdfIntegrator& TSDF integrator used for
   ///        3D LiDAR scan integration.
@@ -710,7 +713,8 @@ class Mapper : public MapperBase {
       BlocksToUpdateType blocks_to_update_type,
       UpdateFullLayer update_full_layer) const;
 
-  /// @brief Deallocate blocks int the esdf, mesh, freespace and empty space layer.
+  /// @brief Deallocate blocks int the esdf, mesh, freespace and empty space
+  /// layer.
   /// @param blocks_to_clear Vector of blocks to clear.
   void clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear);
 
@@ -732,7 +736,7 @@ class Mapper : public MapperBase {
   /// Integrators
   ProjectiveTsdfIntegrator tsdf_integrator_;
   ProjectiveTsdfIntegrator lidar_tsdf_integrator_;
-  FreespaceIntegrator freespace_integrator_; 
+  FreespaceIntegrator freespace_integrator_;
   EmptySpaceIntegrator empty_space_integrator_;
   ProjectiveOccupancyIntegrator occupancy_integrator_;
   ProjectiveOccupancyIntegrator lidar_occupancy_integrator_;

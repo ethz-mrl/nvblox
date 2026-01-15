@@ -57,8 +57,8 @@ EmptySpaceBlock::Ptr EmptySpaceBlock::allocate(MemoryType memory_type) {
   return allocateAsync(memory_type, CudaStreamOwning());
 }
 
-EmptySpaceBlock::Ptr EmptySpaceBlock::allocateAsync(MemoryType memory_type,
-                                          const CudaStream& cuda_stream) {
+EmptySpaceBlock::Ptr EmptySpaceBlock::allocateAsync(
+    MemoryType memory_type, const CudaStream& cuda_stream) {
   Ptr empty_block_ptr =
       make_unified_async<EmptySpaceBlock>(memory_type, cuda_stream);
   initAsync(empty_block_ptr.get(), memory_type, cuda_stream);
@@ -66,8 +66,9 @@ EmptySpaceBlock::Ptr EmptySpaceBlock::allocateAsync(MemoryType memory_type,
   return empty_block_ptr;
 }
 
-void EmptySpaceBlock::initAsync(EmptySpaceBlock* block_ptr, const MemoryType memory_type,
-                           const CudaStream& cuda_stream) {
+void EmptySpaceBlock::initAsync(EmptySpaceBlock* block_ptr,
+                                const MemoryType memory_type,
+                                const CudaStream& cuda_stream) {
   if (memory_type == MemoryType::kDevice) {
     setBlockBytesZeroOnGPUAsync(block_ptr, cuda_stream);
   } else {

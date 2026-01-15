@@ -16,9 +16,9 @@ limitations under the License.
 
 #pragma once
 
+#include "nvblox/serialization/empty_space_serializer_gpu.h"
 #include "nvblox/serialization/layer_serializer_gpu.h"
 #include "nvblox/serialization/mesh_serializer_gpu.h"
-#include "nvblox/serialization/empty_space_serializer_gpu.h"
 
 namespace nvblox {
 // The traits defined here are used to deduce the correct SerializerType and

@@ -94,7 +94,13 @@ inline bool isAccessibleOnCPU(const MemoryType memory_type) {
 }
 
 // Which type of mapping to do.
-enum class ProjectiveLayerType { kTsdf, kTsdfWithFreespace, kTsdfWithEmptySpace, kOccupancy, kNone };
+enum class ProjectiveLayerType {
+  kTsdf,
+  kTsdfWithFreespace,
+  kTsdfWithEmptySpace,
+  kOccupancy,
+  kNone
+};
 template <>
 inline std::string toString(const ProjectiveLayerType& layer_type) {
   switch (layer_type) {

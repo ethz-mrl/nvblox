@@ -78,8 +78,8 @@ bool outputBlockLayerToPly(
                         const Index3D& block_index, const BlockType* block) {
     float intensity = 0.0f;
     if (lambda(block, &intensity)) {
-      points.push_back(getCenterPositionFromBlockIndex(
-          block_size, block_index));
+      points.push_back(
+          getCenterPositionFromBlockIndex(block_size, block_index));
       intensities.push_back(intensity);
     }
   };

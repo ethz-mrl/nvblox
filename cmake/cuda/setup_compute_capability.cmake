@@ -50,10 +50,10 @@ set(TORCH_CUDA_ARCH_LIST "")
 # Loop through each number in the list
 foreach(ARCH IN LISTS CMAKE_CUDA_ARCHITECTURES)
 
-# Handle both 2-digit (e.g. 86) and 3-digit (e.g. 120) architectures
-math(EXPR MAJOR "${ARCH} / 10")
-math(EXPR MINOR "${ARCH} % 10")
-set(DOT_SEPARATED "${MAJOR}.${MINOR}")
+  # Handle both 2-digit (e.g. 86) and 3-digit (e.g. 120) architectures
+  math(EXPR MAJOR "${ARCH} / 10")
+  math(EXPR MINOR "${ARCH} % 10")
+  set(DOT_SEPARATED "${MAJOR}.${MINOR}")
 
   # Append to the result list
   list(APPEND TORCH_CUDA_ARCH_LIST "${DOT_SEPARATED}")
