@@ -246,7 +246,7 @@ class Mapper : public MapperBase {
 
   /// Removes blocks marked empty in EmptySpaceLayer from the specified layers.
   // TODO(@bmicha) allow passing layers to be cleared from.
-  void clearEmptySpaceBlocksInLayers();
+  void clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer);
 
   /// Serialize selected layers.
   ///

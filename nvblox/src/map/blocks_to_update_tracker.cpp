@@ -44,6 +44,7 @@ void BlocksToUpdateTracker::addBlocksToUpdate(
 
     if (hasEmptySpaceLayer(projective_layer_type_)) {
       empty_space_blocks_to_update_.insert(vec.begin(), vec.end());
+      empty_space_clearing_blocks_to_update_.insert(vec.begin(), vec.end());
     }
 
     // Safety vent to prevent the set from growing indefinitely if there is no
@@ -54,6 +55,8 @@ void BlocksToUpdateTracker::addBlocksToUpdate(
     clearIfTooLarge(layer_streamer_blocks_to_update_, "layer_streamer");
     clearIfTooLarge(freespace_blocks_to_update_, "freespace");
     clearIfTooLarge(empty_space_blocks_to_update_, "empty_space");
+    clearIfTooLarge(empty_space_clearing_blocks_to_update_,
+                    "empty_space_clearing");
   };
 
   // Synchronize (wait for other async calls to finish) and
@@ -78,6 +81,7 @@ void BlocksToUpdateTracker::removeBlocksToUpdate(
 
       if (hasEmptySpaceLayer(projective_layer_type_)) {
         empty_space_blocks_to_update_.erase(idx);
+        empty_space_clearing_blocks_to_update_.erase(idx);
       }
     }
   };
@@ -109,6 +113,9 @@ std::vector<Index3D> BlocksToUpdateTracker::getBlocksToUpdate(
     case BlocksToUpdateType::kEmptySpace:
       return {empty_space_blocks_to_update_.begin(),
               empty_space_blocks_to_update_.end()};
+    case BlocksToUpdateType::kEmptySpaceClearing:
+      return {empty_space_clearing_blocks_to_update_.begin(),
+              empty_space_clearing_blocks_to_update_.end()};
     case BlocksToUpdateType::kLayerStreamer:
       return {layer_streamer_blocks_to_update_.begin(),
               layer_streamer_blocks_to_update_.end()};
@@ -137,6 +144,9 @@ void BlocksToUpdateTracker::markBlocksAsUpdated(
         break;
       case BlocksToUpdateType::kEmptySpace:
         empty_space_blocks_to_update_.clear();
+        break;
+      case BlocksToUpdateType::kEmptySpaceClearing:
+        empty_space_clearing_blocks_to_update_.clear();
         break;
       case BlocksToUpdateType::kLayerStreamer:
         layer_streamer_blocks_to_update_.clear();

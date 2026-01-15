@@ -248,23 +248,25 @@ TEST_F(EmptySpaceIntegratorTestSphereScene, MapperTest) {
     // Update empty space layer after emptySpaceLayerUpdateInterval frames.
     if (i && i % emptySpaceLayerUpdateInterval == 0) {
       mapper.updateEmptySpace();
+      mapper.clearEmptySpaceBlocksInLayers(UpdateFullLayer::kYes);
     }
   }
   // Also include the potentially off-by-one frames.
   mapper.updateEmptySpace();
+  mapper.clearEmptySpaceBlocksInLayers(UpdateFullLayer::kYes);
 
   // Check the kernel logic of marking blocks as empty before we clear the
   // layer.
   // Check the empty flag for each block in the empty space layer.
   bool all_voxels_are_empty;
-  for (const Index3D& block_index : mapper.tsdf_layer().getAllBlockIndices()) {
+  for (const Index3D& block_index : tsdf_layer_baseline.getAllBlockIndices()) {
     // Reset flag.
     all_voxels_are_empty = true;
 
     const auto empty_space_block =
         mapper.empty_space_layer().getBlockAtIndex(block_index);
 
-    const auto tsdf_block = mapper.tsdf_layer().getBlockAtIndex(block_index);
+    const auto tsdf_block = tsdf_layer_baseline.getBlockAtIndex(block_index);
 
     for (int x = 0; x < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; x++) {
       for (int y = 0; y < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; y++) {
@@ -284,8 +286,6 @@ TEST_F(EmptySpaceIntegratorTestSphereScene, MapperTest) {
       EXPECT_FALSE(all_voxels_are_empty);
     }
   }
-
-  mapper.clearEmptySpaceBlocksInLayers();
 
   // Check that all empty blocks have been removed and that all non-empty blocks
   // have not been removed.

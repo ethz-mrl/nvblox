@@ -30,15 +30,28 @@ class EmptySpaceIntegrator {
   ///@return std::vector<Index3D> holding indices of all blocks that are marked
   /// empty.
   std::vector<Index3D> getIndicesOfAllBlocksMarkedEmpty(
+      const std::vector<Index3D>& block_indices_to_consider,
       EmptySpaceLayer* empty_space_layer_ptr);
 
-  /// @brief Removes all blocks marked empty from a given layer.
+  /// @brief Removes all blocks marked empty from a given layer by checking
+  /// every single block.
   /// @param layer_to_modify_ptr Layer to update / clear blocks from.
   /// @param empty_space_layer_ptr EmptySpace layer that holds the empty
   /// flags.
   template <typename LayerType>
   void clearEmptyBlocksFromLayer(LayerType* layer_to_modify_ptr,
                                  EmptySpaceLayer* empty_space_layer_ptr);
+
+  /// @brief Removes all blocks marked empty from a given layer.
+  /// @param block_indices_to_consider Indices of blocks to consider for
+  /// clearing.
+  /// @param layer_to_modify_ptr Layer to update / clear blocks from.
+  /// @param empty_space_layer_ptr EmptySpace layer that holds the empty
+  /// flags.
+  template <typename LayerType>
+  void clearEmptyBlocksFromLayer(
+      const std::vector<Index3D>& block_indices_to_consider,
+      LayerType* layer_to_modify_ptr, EmptySpaceLayer* empty_space_layer_ptr);
 
   // Parameter getters/setters as needed
   // ...
@@ -60,17 +73,28 @@ class EmptySpaceIntegrator {
 template <typename LayerType>
 void EmptySpaceIntegrator::clearEmptyBlocksFromLayer(
     LayerType* layer_to_modify_ptr, EmptySpaceLayer* empty_space_layer_ptr) {
+  const std::vector<Index3D> all_block_indices =
+      empty_space_layer_ptr->getAllBlockIndices();
+  clearEmptyBlocksFromLayer(all_block_indices, layer_to_modify_ptr,
+                            empty_space_layer_ptr);
+}
+
+template <typename LayerType>
+void EmptySpaceIntegrator::clearEmptyBlocksFromLayer(
+    const std::vector<Index3D>& block_indices_to_consider,
+    LayerType* layer_to_modify_ptr, EmptySpaceLayer* empty_space_layer_ptr) {
   // Check inputs
   CHECK_NOTNULL(layer_to_modify_ptr);
 
-  std::vector<Index3D> empty_block_indices =
-      getIndicesOfAllBlocksMarkedEmpty(empty_space_layer_ptr);
+  std::vector<Index3D> block_indices_to_be_cleared =
+      getIndicesOfAllBlocksMarkedEmpty(block_indices_to_consider,
+                                       empty_space_layer_ptr);
 
-  if (empty_block_indices.empty()) {
+  if (block_indices_to_be_cleared.empty()) {
     return;
   }
 
-  layer_to_modify_ptr->clearBlocks(empty_block_indices);
+  layer_to_modify_ptr->clearBlocks(block_indices_to_be_cleared);
 }
 
 }  // namespace nvblox

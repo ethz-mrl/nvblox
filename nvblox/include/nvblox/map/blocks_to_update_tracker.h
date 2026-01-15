@@ -29,6 +29,7 @@ enum class BlocksToUpdateType {
   kFeatureMesh,
   kFreespace,
   kEmptySpace,
+  kEmptySpaceClearing,
   kLayerStreamer
 };
 
@@ -69,6 +70,7 @@ class BlocksToUpdateTracker {
   Index3DSet feature_mesh_blocks_to_update_;
   Index3DSet freespace_blocks_to_update_;
   Index3DSet empty_space_blocks_to_update_;
+  Index3DSet empty_space_clearing_blocks_to_update_;
   Index3DSet layer_streamer_blocks_to_update_;
 
   // Object to synchronize async functions (initialize to valid)

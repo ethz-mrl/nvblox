@@ -144,27 +144,26 @@ __global__ void getIndicesOfAllBlocksMarkedEmptyKernel(
 }
 
 std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
+    const std::vector<Index3D>& block_indices_to_consider,
     EmptySpaceLayer* empty_space_layer_ptr) {
   timing::Timer index_fetching_timer("empty_space/get_empy_block_indices");
 
   // Check inputs
   CHECK_NOTNULL(empty_space_layer_ptr);
 
-  // For now, fetch indices of all blocks in the layer for the lookup.
-  const std::vector<Index3D> all_block_indices =
-      empty_space_layer_ptr->getAllBlockIndices();
-  const size_t num_all_block_indices = all_block_indices.size();
+  const size_t num_block_indices_to_consider = block_indices_to_consider.size();
 
   // Early return if no blocks available to check.
-  if (num_all_block_indices == 0) {
+  if (num_block_indices_to_consider == 0) {
     return std::vector<Index3D>();
   }
 
   // Expand the buffers when needed
-  if (num_all_block_indices > block_indices_to_update_device_.capacity()) {
+  if (num_block_indices_to_consider >
+      block_indices_to_update_device_.capacity()) {
     constexpr float kBufferExpansionFactor = 1.5f;
-    const int new_size =
-        static_cast<int>(kBufferExpansionFactor * num_all_block_indices);
+    const int new_size = static_cast<int>(kBufferExpansionFactor *
+                                          num_block_indices_to_consider);
     block_indices_to_update_device_.reserveAsync(new_size, *cuda_stream_);
     empty_space_blocks_to_update_device_.reserveAsync(new_size, *cuda_stream_);
     tsdf_blocks_to_update_device_.reserveAsync(new_size, *cuda_stream_);
@@ -174,12 +173,12 @@ std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
       "empty_space/get_empy_block_indices/transfer_blocks_to_device");
 
   // Transfer block indices
-  transferBlocksIndicesToDevice(all_block_indices, *cuda_stream_,
+  transferBlocksIndicesToDevice(block_indices_to_consider, *cuda_stream_,
                                 &block_indices_to_update_host_,
                                 &block_indices_to_update_device_);
 
   // Transfer block pointers
-  transferBlockPointersToDevice(all_block_indices, *cuda_stream_,
+  transferBlockPointersToDevice(block_indices_to_consider, *cuda_stream_,
                                 empty_space_layer_ptr,
                                 &empty_space_blocks_to_update_host_,
                                 &empty_space_blocks_to_update_device_);
@@ -191,7 +190,8 @@ std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
       "allocate_output_buffers");
 
   device_vector<Index3D> output_indices_device;
-  output_indices_device.resizeAsync(num_all_block_indices, *cuda_stream_);
+  output_indices_device.resizeAsync(num_block_indices_to_consider,
+                                    *cuda_stream_);
 
   device_vector<int> output_count_device;
   output_count_device.resizeAsync(1, *cuda_stream_);
@@ -207,7 +207,7 @@ std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
   // Launch kernel
   constexpr int kNumThreads = 512;
   const int num_thread_blocks =
-      (num_all_block_indices + kNumThreads - 1) / kNumThreads;
+      (num_block_indices_to_consider + kNumThreads - 1) / kNumThreads;
 
   getIndicesOfAllBlocksMarkedEmptyKernel<<<num_thread_blocks, kNumThreads>>>(
       block_indices_to_update_device_.size(),

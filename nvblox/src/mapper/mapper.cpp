@@ -628,7 +628,7 @@ void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
     return;
   }
 
-  // Get the freespace blocks that need an update
+  // Get the empty space blocks that need an update
   std::vector<Index3D> blocks_to_update =
       getBlocksToUpdate(BlocksToUpdateType::kEmptySpace, update_full_layer);
 
@@ -643,12 +643,22 @@ void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
   layers_.getPtr<EmptySpaceLayer>()->updateGpuHash(*cuda_stream_);
 }
 
-void Mapper::clearEmptySpaceBlocksInLayers() {
+void Mapper::clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer) {
   // TODO(@bmicha) add ability to clear different but selected layers
-  // TODO(@bmicha) add option to not check entire layer (use
-  // blocksToUpdateTracker)
-  empty_space_integrator_.clearEmptyBlocksFromLayer(&tsdf_layer(),
-                                                    &empty_space_layer());
+
+  // Get the empty space blocks that need an update
+  std::vector<Index3D> blocks_to_update = getBlocksToUpdate(
+      BlocksToUpdateType::kEmptySpaceClearing, check_full_layer);
+
+  empty_space_integrator_.clearEmptyBlocksFromLayer(
+      blocks_to_update, &tsdf_layer(), &empty_space_layer());
+
+  // Mark blocks as updated
+  blocks_to_update_tracker_.markBlocksAsUpdated(
+      BlocksToUpdateType::kEmptySpaceClearing);
+
+  // TODO(@bmicha) Call for every layer that was affected.
+  layers_.getPtr<TsdfLayer>()->updateGpuHash(*cuda_stream_);
 }
 
 void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
