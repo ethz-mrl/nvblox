@@ -14,7 +14,8 @@ EmptySpaceIntegrator::EmptySpaceIntegrator(
 
 __global__ void updateEmptySpaceKernel(
     int num_block_indices_to_update, const TsdfBlock** tsdf_blocks_to_update,
-    EmptySpaceBlock** empty_space_blocks_to_update, float truncation_distance) {
+    EmptySpaceBlock** empty_space_blocks_to_update,
+    float truncation_distance_m) {
   if (blockIdx.x >= num_block_indices_to_update) {
     return;
   }
@@ -37,7 +38,7 @@ __global__ void updateEmptySpaceKernel(
   // A block is considered occupied if ANY voxel is:
   // 1. Observed (weight > 0) AND
   // 2. Within truncation distance of a surface
-  if (tsdf_voxel.weight > 0.0f && truncation_distance > tsdf_voxel.distance) {
+  if (tsdf_voxel.weight > 0.0f && truncation_distance_m > tsdf_voxel.distance) {
     atomicExch(&occupied_flag, 1);
   }
 
@@ -49,7 +50,8 @@ __global__ void updateEmptySpaceKernel(
   }
 }
 
-void EmptySpaceIntegrator::launchIntegrationKernel(float truncation_distance) {
+void EmptySpaceIntegrator::launchIntegrationKernel(
+    float truncation_distance_m) {
   const dim3 kThreadsPerBlock(TsdfBlock::kVoxelsPerSide,
                               TsdfBlock::kVoxelsPerSide,
                               TsdfBlock::kVoxelsPerSide);
@@ -60,14 +62,14 @@ void EmptySpaceIntegrator::launchIntegrationKernel(float truncation_distance) {
                            *cuda_stream_>>>(
       block_indices_to_update_device_.size(),
       tsdf_blocks_to_update_device_.data(),
-      empty_space_blocks_to_update_device_.data(), truncation_distance);
+      empty_space_blocks_to_update_device_.data(), truncation_distance_m);
   checkCudaErrors(cudaPeekAtLastError());
 }
 
 void EmptySpaceIntegrator::updateEmptySpaceLayer(
     const std::vector<Index3D>& block_indices_to_update,
     const TsdfLayer& tsdf_layer, EmptySpaceLayer* empty_space_layer_ptr,
-    float truncation_distance) {
+    float truncation_distance_vox) {
   timing::Timer integration_timer("empty_space/integrate");
 
   // Check inputs
@@ -113,7 +115,7 @@ void EmptySpaceIntegrator::updateEmptySpaceLayer(
   transfer_timer.Stop();
 
   timing::Timer update_timer("empty_space/integrate/update_blocks");
-  launchIntegrationKernel(truncation_distance);
+  launchIntegrationKernel(truncation_distance_vox * tsdf_layer.voxel_size());
 
   cuda_stream_->synchronize();
   update_timer.Stop();
@@ -152,6 +154,11 @@ std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
   const std::vector<Index3D> all_block_indices =
       empty_space_layer_ptr->getAllBlockIndices();
   const size_t num_all_block_indices = all_block_indices.size();
+
+  // Early return if no blocks available to check.
+  if (num_all_block_indices == 0) {
+    return std::vector<Index3D>();
+  }
 
   // Expand the buffers when needed
   if (num_all_block_indices > block_indices_to_update_device_.capacity()) {

@@ -578,25 +578,6 @@ void Mapper::updateFreespace(
   layers_.getPtr<FreespaceLayer>()->updateGpuHash(*cuda_stream_);
 }
 
-void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
-  CHECK(hasEmptySpaceLayer(projective_layer_type_))
-      << "Trying to update the empty space layer while it is not enabled.";
-  
-  // Get the freespace blocks that need an update
-  std::vector<Index3D> blocks_to_update =
-      getBlocksToUpdate(BlocksToUpdateType::kEmptySpace, update_full_layer);
-
-  empty_space_integrator_.updateEmptySpaceLayer(
-      blocks_to_update, layers_.get<TsdfLayer>(),
-      layers_.getPtr<EmptySpaceLayer>(),
-      tsdf_integrator_.truncation_distance_vox());
-
-  // Mark blocks as updated
-  blocks_to_update_tracker_.markBlocksAsUpdated(
-      BlocksToUpdateType::kEmptySpace);
-  layers_.getPtr<EmptySpaceLayer>()->updateGpuHash(*cuda_stream_);
-}
-
 template <typename AppearanceVoxelType>
 void Mapper::updateMeshTemplate(
     MeshIntegrator<AppearanceVoxelType>& mesh_integrator,
@@ -636,6 +617,38 @@ void Mapper::updateFeatureMesh(UpdateFullLayer update_full_layer) {
 void Mapper::updateColorMesh(UpdateFullLayer update_full_layer) {
   updateMeshTemplate(color_mesh_integrator(), update_full_layer,
                      BlocksToUpdateType::kColorMesh);
+}
+
+void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
+  CHECK(hasEmptySpaceLayer(projective_layer_type_))
+      << "Trying to update the empty space layer while it is not enabled.";
+
+  // NOTE(@bmicha) empty space layer currently only supported for TSDF.
+  if (!hasTsdfLayer(projective_layer_type_)) {
+    return;
+  }
+
+  // Get the freespace blocks that need an update
+  std::vector<Index3D> blocks_to_update =
+      getBlocksToUpdate(BlocksToUpdateType::kEmptySpace, update_full_layer);
+
+  empty_space_integrator_.updateEmptySpaceLayer(
+      blocks_to_update, layers_.get<TsdfLayer>(),
+      layers_.getPtr<EmptySpaceLayer>(),
+      tsdf_integrator_.truncation_distance_vox());
+
+  // Mark blocks as updated
+  blocks_to_update_tracker_.markBlocksAsUpdated(
+      BlocksToUpdateType::kEmptySpace);
+  layers_.getPtr<EmptySpaceLayer>()->updateGpuHash(*cuda_stream_);
+}
+
+void Mapper::clearEmptySpaceBlocksInLayers() {
+  // TODO(@bmicha) add ability to clear different but selected layers
+  // TODO(@bmicha) add option to not check entire layer (use
+  // blocksToUpdateTracker)
+  empty_space_integrator_.clearEmptyBlocksFromLayer(&tsdf_layer(),
+                                                    &empty_space_layer());
 }
 
 void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {

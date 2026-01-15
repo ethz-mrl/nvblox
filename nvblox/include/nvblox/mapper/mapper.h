@@ -225,12 +225,6 @@ class Mapper : public MapperBase {
       const DepthImage& depth_frame,
       UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
 
-  // /// Updates the empty space blocks.
-  // /// @param update_full_layer Whether to update the full layer or only the
-  // /// blocks that require and update.
-  void updateEmptySpace(
-      UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
-
   /// Updates the mesh blocks.
   /// @param update_full_layer Whether to update the full layer or only the
   /// blocks that require and update. Useful if loading a layer cake without a
@@ -243,6 +237,16 @@ class Mapper : public MapperBase {
   /// blocks that require and update.
   void updateFeatureMesh(
       UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
+
+  /// Updates the empty space blocks.
+  /// @param update_full_layer Whether to update the full layer or only the
+  /// blocks that require and update.
+  void updateEmptySpace(
+      UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
+
+  /// Removes blocks marked empty in EmptySpaceLayer from the specified layers.
+  // TODO(@bmicha) allow passing layers to be cleared from.
+  void clearEmptySpaceBlocksInLayers();
 
   /// Serialize selected layers.
   ///

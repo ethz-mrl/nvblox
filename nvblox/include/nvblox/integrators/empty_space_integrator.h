@@ -12,7 +12,7 @@ class EmptySpaceIntegrator {
   EmptySpaceIntegrator(std::shared_ptr<CudaStream> cuda_stream);
   virtual ~EmptySpaceIntegrator() = default;
 
-  void launchIntegrationKernel(float truncation_distance);
+  void launchIntegrationKernel(float truncation_distance_m);
 
   /// @brief Updates an EmptySpace layer according to a tsdf layer.
   /// @param block_indices_to_update The block indices that should be updated.
@@ -22,7 +22,7 @@ class EmptySpaceIntegrator {
   void updateEmptySpaceLayer(
       const std::vector<Index3D>& block_indices_to_update,
       const TsdfLayer& tsdf_layer, EmptySpaceLayer* empty_space_layer_ptr,
-      float truncation_distance);
+      float truncation_distance_vox);
 
   /// @brief Gets all indices of blocks marked empty in EmptySpace layer.
   /// @param empty_space_layer_ptr EmptySpace layer that holds the empty
