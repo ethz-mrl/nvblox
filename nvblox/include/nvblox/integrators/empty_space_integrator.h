@@ -65,6 +65,11 @@ class EmptySpaceIntegrator {
     layers_to_clear_ = layers_to_clear;
   }
 
+  /// Return the parameter tree.
+  /// @return the parameter tree
+  virtual parameters::ParameterTreeNode getParameterTree(
+      const std::string& name_remap = std::string()) const;
+
  protected:
   std::shared_ptr<CudaStream> cuda_stream_;
 

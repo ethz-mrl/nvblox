@@ -240,4 +240,13 @@ std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
   return resulting_empty_indices;
 }
 
+parameters::ParameterTreeNode EmptySpaceIntegrator::getParameterTree(
+    const std::string& name_remap) const {
+  const std::string name =
+      (name_remap.empty()) ? "empty_space_integrator" : name_remap;
+  using parameters::ParameterTreeNode;
+  return ParameterTreeNode(
+      name, {ParameterTreeNode("layers_to_clear:", layers_to_clear_)});
+}
+
 }  // namespace nvblox

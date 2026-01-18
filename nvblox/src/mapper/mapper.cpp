@@ -1075,7 +1075,8 @@ parameters::ParameterTreeNode Mapper::getParameterTree(
        feature_mesh_integrator_.getParameterTree(),
        occupancy_decay_integrator_.getParameterTree(),
        tsdf_decay_integrator_.getParameterTree(),
-       freespace_integrator_.getParameterTree()});
+       freespace_integrator_.getParameterTree(),
+       empty_space_integrator_.getParameterTree()});
 }
 
 std::string Mapper::getParametersAsString() const {
