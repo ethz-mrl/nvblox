@@ -15,6 +15,7 @@ limitations under the License.
 */
 #pragma once
 
+#include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/esdf_integrator.h"
 #include "nvblox/integrators/esdf_integrator_params.h"
 #include "nvblox/integrators/freespace_integrator.h"
@@ -64,6 +65,7 @@ struct MapperParams {
   DecayIntegratorBaseParams decay_integrator_base_params;
   OccupancyDecayIntegratorParams occupancy_decay_integrator_params;
   FreespaceIntegratorParams freespace_integrator_params;
+  EmptySpaceIntegratorParams empty_space_integrator_params;
 };
 
 }  // namespace nvblox

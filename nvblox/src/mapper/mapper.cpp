@@ -275,6 +275,10 @@ void Mapper::setMapperParams(const MapperParams& params) {
           .min_consecutive_occupancy_duration_for_reset_ms);
   freespace_integrator().check_neighborhood(
       params.freespace_integrator_params.check_neighborhood);
+
+  // ======= EMPTY SPACE INTEGRATOR =======
+  empty_space_integrator().layers_to_clear(
+      params.empty_space_integrator_params.layers_to_clear);
 }
 
 TsdfLayer& Mapper::tsdf_layer() {
@@ -644,21 +648,91 @@ void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
 }
 
 void Mapper::clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer) {
-  // TODO(@bmicha) add ability to clear different but selected layers
-
-  // Get the empty space blocks that need an update
+  // Get the empty space blocks that need an update.
   std::vector<Index3D> blocks_to_update = getBlocksToUpdate(
       BlocksToUpdateType::kEmptySpaceClearing, check_full_layer);
 
-  empty_space_integrator_.clearEmptyBlocksFromLayer(
-      blocks_to_update, &tsdf_layer(), &empty_space_layer());
+  // Get the indices of blocks that are marked empty.
+  std::vector<Index3D> block_indices_to_be_cleared =
+      empty_space_integrator_.getIndicesOfAllBlocksMarkedEmpty(
+          blocks_to_update, &empty_space_layer());
+
+  if (block_indices_to_be_cleared.empty()) {
+    // Mark blocks as updated even if nothing to clear.
+    blocks_to_update_tracker_.markBlocksAsUpdated(
+        BlocksToUpdateType::kEmptySpaceClearing);
+    return;
+  }
+
+  // Get the layer types that should be cleared.
+  LayerTypeBitMask layers_to_clear = empty_space_integrator_.layers_to_clear();
+
+  // Clear blocks from each specified layer type
+  if (layers_to_clear & LayerType::kTsdf) {
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &tsdf_layer(), &empty_space_layer());
+      tsdf_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kColor) {
+    empty_space_integrator_.clearEmptyBlocksFromLayer(
+        block_indices_to_be_cleared, &color_layer(), &empty_space_layer());
+    color_layer().updateGpuHash(*cuda_stream_);
+  }
+
+  if (layers_to_clear & LayerType::kFeature) {
+    empty_space_integrator_.clearEmptyBlocksFromLayer(
+        block_indices_to_be_cleared, &feature_layer(), &empty_space_layer());
+    feature_layer().updateGpuHash(*cuda_stream_);
+  }
+
+  if (layers_to_clear & LayerType::kColorMesh) {
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &color_mesh_layer(),
+          &empty_space_layer());
+      color_mesh_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kFeatureMesh) {
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &feature_mesh_layer(),
+          &empty_space_layer());
+      feature_mesh_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kFreespace) {
+    if (hasFreespaceLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &freespace_layer(),
+          &empty_space_layer());
+      freespace_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kEsdf) {
+    empty_space_integrator_.clearEmptyBlocksFromLayer(
+        block_indices_to_be_cleared, &esdf_layer(), &empty_space_layer());
+    esdf_layer().updateGpuHash(*cuda_stream_);
+  }
+
+  if (layers_to_clear & LayerType::kOccupancy) {
+    if (projective_layer_type_ == ProjectiveLayerType::kOccupancy) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &occupancy_layer(),
+          &empty_space_layer());
+      occupancy_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
 
   // Mark blocks as updated
   blocks_to_update_tracker_.markBlocksAsUpdated(
       BlocksToUpdateType::kEmptySpaceClearing);
-
-  // TODO(@bmicha) Call for every layer that was affected.
-  layers_.getPtr<TsdfLayer>()->updateGpuHash(*cuda_stream_);
 }
 
 void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
@@ -676,7 +750,9 @@ void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
     esdf_integrator_.integrateBlocks(
         layers_.get<TsdfLayer>(), layers_.get<FreespaceLayer>(),
         blocks_to_update, layers_.getPtr<EsdfLayer>());
-  } else if (projective_layer_type_ == ProjectiveLayerType::kTsdf) {
+  } else if (projective_layer_type_ == ProjectiveLayerType::kTsdf ||
+             projective_layer_type_ ==
+                 ProjectiveLayerType::kTsdfWithEmptySpace) {
     esdf_integrator_.integrateBlocks(layers_.get<TsdfLayer>(), blocks_to_update,
                                      layers_.getPtr<EsdfLayer>());
   } else if (projective_layer_type_ == ProjectiveLayerType::kOccupancy) {

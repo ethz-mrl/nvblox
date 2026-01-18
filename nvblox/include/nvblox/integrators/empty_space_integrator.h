@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nvblox/core/types.h"
+#include "nvblox/integrators/empty_space_integrator_params.h"
 #include "nvblox/map/common_names.h"
 #include "nvblox/map/layer.h"
 
@@ -53,8 +54,16 @@ class EmptySpaceIntegrator {
       const std::vector<Index3D>& block_indices_to_consider,
       LayerType* layer_to_modify_ptr, EmptySpaceLayer* empty_space_layer_ptr);
 
-  // Parameter getters/setters as needed
-  // ...
+  // Parameter getters and setters
+  /// @brief Get the layer types that should be cleared by empty space clearing.
+  /// @return LayerTypeBitMask indicating which layers should be cleared.
+  LayerTypeBitMask layers_to_clear() const { return layers_to_clear_; }
+
+  /// @brief Set the layer types that should be cleared by empty space clearing.
+  /// @param layers_to_clear BitMask indicating which layers should be cleared.
+  void layers_to_clear(const LayerTypeBitMask& layers_to_clear) {
+    layers_to_clear_ = layers_to_clear;
+  }
 
  protected:
   std::shared_ptr<CudaStream> cuda_stream_;
@@ -68,6 +77,9 @@ class EmptySpaceIntegrator {
   device_vector<EmptySpaceBlock*> empty_space_blocks_to_update_device_;
   host_vector<const TsdfBlock*> tsdf_blocks_to_update_host_;
   device_vector<const TsdfBlock*> tsdf_blocks_to_update_device_;
+
+  LayerTypeBitMask layers_to_clear_{
+      kEmptySpaceIntegratorLayersToClearParamDesc.default_value};
 };
 
 template <typename LayerType>

@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <cmath>
 
+#include "nvblox/core/layer_type_traits.h"
 #include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/projective_tsdf_integrator.h"
 #include "nvblox/integrators/weighting_function.h"
@@ -255,9 +256,8 @@ TEST_F(EmptySpaceIntegratorTestSphereScene, MapperTest) {
   mapper.updateEmptySpace();
   mapper.clearEmptySpaceBlocksInLayers(UpdateFullLayer::kYes);
 
-  // Check the kernel logic of marking blocks as empty before we clear the
-  // layer.
-  // Check the empty flag for each block in the empty space layer.
+  // Check the empty flag with the values in the baseline tsdf layer for each
+  // block in the empty space layer.
   bool all_voxels_are_empty;
   for (const Index3D& block_index : tsdf_layer_baseline.getAllBlockIndices()) {
     // Reset flag.
@@ -306,6 +306,96 @@ TEST_F(EmptySpaceIntegratorTestSphereScene, MapperTest) {
       // We did not clear blocks in this layer...
       ASSERT_FALSE(!empty_space_block);
       // ... and the block should be flagged NOT empty.
+      EXPECT_FALSE(empty_space_block->is_empty);
+    }
+  }
+}
+
+// A wrapper that exposes the protected members for testing.
+class MapperTestWrapper : public Mapper {
+ public:
+  // Inherit the constructors
+  using Mapper::Mapper;
+
+  // Expose protected layers_ pointer publicly.
+  const LayerCake& layers() const { return layers_; }
+  LayerCake& layers() { return layers_; }
+};
+
+template <typename T>
+class EmptySpaceIntegratorMapperClearing
+    : public EmptySpaceIntegratorTestSphereScene {
+ protected:
+  MapperTestWrapper mapper_;
+
+ public:
+  EmptySpaceIntegratorMapperClearing()
+      : mapper_(voxel_size_m_, MemoryType::kUnified,
+                ProjectiveLayerType::kTsdfWithEmptySpace) {
+    // Only passed layer type will be cleared.
+    LayerTypeBitMask layers_to_clear_mask{getLayerType<T>()};
+    mapper_.empty_space_integrator().layers_to_clear(layers_to_clear_mask);
+    mapper_.tsdf_integrator().truncation_distance_vox(kTruncationDistanceVox_);
+  }
+};
+
+using LayerToTest = ::testing::Types<TsdfLayer, EsdfLayer>;
+TYPED_TEST_SUITE(EmptySpaceIntegratorMapperClearing, LayerToTest);
+
+// Check selective layer clearing logic for different layer types.
+TYPED_TEST(EmptySpaceIntegratorMapperClearing, ClearingSelectedLayer) {
+  constexpr int emptySpaceLayerUpdateInterval = this->kNumTrajectoryPoints_ / 4;
+
+  // Integrate depth frames into layers.
+  for (size_t i = 0; i < this->kNumTrajectoryPoints_; i++) {
+    const float theta = this->radians_increment_ * i;
+    // Convert polar to cartesian coordinates.
+    Vector3f cartesian_coordinates(this->kTrajectoryRadius_ * std::cos(theta),
+                                   this->kTrajectoryRadius_ * std::sin(theta),
+                                   this->kTrajectoryHeight_);
+    // The camera has its z axis pointing towards the origin.
+    Eigen::Quaternionf rotation_base(0.5, 0.5, 0.5, 0.5);
+    Eigen::Quaternionf rotation_theta(
+        Eigen::AngleAxisf(M_PI + theta, Vector3f::UnitZ()));
+
+    // Construct a transform from camera to scene with this.
+    Transform T_S_C = Transform::Identity();
+    T_S_C.prerotate(rotation_theta * rotation_base);
+    T_S_C.pretranslate(cartesian_coordinates);
+
+    // Generate a depth image of the scene.
+    this->scene_.generateDepthImageFromScene(
+        this->camera_, T_S_C, this->kMaxDist_, &this->depth_frame_);
+
+    // Integrate this depth image.
+    this->mapper_.integrateDepth(
+        MaskedDepthImageConstView(this->depth_frame_, kMaskActiveEverywhere),
+        T_S_C, this->camera_);
+
+    // Update empty space layer after emptySpaceLayerUpdateInterval frames.
+    if ((i == this->kNumTrajectoryPoints_ - 1) ||
+        (i && i % emptySpaceLayerUpdateInterval == 0)) {
+      this->mapper_.updateEmptySpace();
+      this->mapper_.updateEsdf();
+      this->mapper_.clearEmptySpaceBlocksInLayers(UpdateFullLayer::kYes);
+    }
+  }
+
+  // Check that all empty blocks have been removed and that all non-empty blocks
+  // have not been removed.
+  for (const Index3D& block_index :
+       this->mapper_.empty_space_layer().getAllBlockIndices()) {
+    const auto cleared_layer_block =
+        this->mapper_.layers().template get<TypeParam>().getBlockAtIndex(
+            block_index);
+
+    const auto empty_space_block =
+        this->mapper_.empty_space_layer().getBlockAtIndex(block_index);
+
+    // Check blocks that have been cleared / no longer exist.
+    if (!cleared_layer_block) {
+      EXPECT_TRUE(empty_space_block->is_empty);
+    } else {
       EXPECT_FALSE(empty_space_block->is_empty);
     }
   }
