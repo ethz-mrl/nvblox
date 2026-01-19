@@ -401,6 +401,21 @@ TYPED_TEST(EmptySpaceIntegratorMapperClearing, ClearingSelectedLayer) {
   }
 }
 
+TEST(MapperParameter, DeActivateEmptySpaceClearing) {
+  Mapper mapper(0.05f, MemoryType::kDevice);
+
+  // Default true
+  EXPECT_TRUE(mapper.do_empty_space_clearing());
+
+  mapper.do_empty_space_clearing(false);
+  EXPECT_FALSE(mapper.do_empty_space_clearing());
+  mapper.do_empty_space_clearing(true);
+  EXPECT_TRUE(mapper.do_empty_space_clearing());
+
+  mapper.depth_preprocessing_num_dilations(123);
+  EXPECT_EQ(mapper.depth_preprocessing_num_dilations(), 123);
+}
+
 int main(int argc, char** argv) {
   FLAGS_alsologtostderr = true;
   google::InitGoogleLogging(argv[0]);

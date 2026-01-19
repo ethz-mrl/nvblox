@@ -618,6 +618,17 @@ class Mapper : public MapperBase {
     exclude_last_view_from_decay_ = exclude_last_view_from_decay;
   }
 
+  /// Getter
+  /// @return Whether blocks marked empty in the empty space layer should be
+  /// cleared from the configured layers.
+  bool do_empty_space_clearing() const { return do_empty_space_clearing_; }
+  /// Setter
+  /// @param do_empty_space_clearing Whether blocks marked empty in the empty
+  /// space layer should be cleared from the configured layers.
+  void do_empty_space_clearing(const bool do_empty_space_clearing) {
+    do_empty_space_clearing_ = do_empty_space_clearing;
+  }
+
   /// Saving and loading functions.
   /// Saving a map will serialize the TSDF and ESDF layers to a file.
   ///@param filename
@@ -778,6 +789,11 @@ class Mapper : public MapperBase {
   /// Whether to exclude the last depth frustum from the decay
   bool exclude_last_view_from_decay_ =
       kExcludeLastViewFromDecayParamDesc.default_value;
+
+  /// Whether blocks marked empty in the empty space layer should be cleared
+  /// from the selected layers.
+  bool do_empty_space_clearing_ = kDoEmptySpaceClearingParamDesc.default_value;
+
   /// Last known depth viewpoint for view-based decay exclusion
   std::optional<DepthImage> last_depth_image_;
   std::optional<Camera> last_depth_camera_;

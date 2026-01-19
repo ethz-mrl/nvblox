@@ -26,8 +26,8 @@ const Param<LayerTypeBitMask>::Description
         // TODO(@bmicha) check which ones we should actually clear.
         LayerTypeBitMask(LayerType::kTsdf) | LayerType::kEsdf |
             LayerType::kColor | LayerType::kColorMesh |
-            LayerType::kFeatureMesh | LayerType::kFreespace |
-            LayerType::kOccupancy | LayerType::kFeature,
+            LayerType::kFeatureMesh | LayerType::kOccupancy |
+            LayerType::kFeature,
         "Layer types that should be cleared by empty space clearing logic."};
 
 struct EmptySpaceIntegratorParams {

@@ -87,6 +87,7 @@ void Mapper::setMapperParams(const MapperParams& params) {
   // depth preprocessing
   do_depth_preprocessing(params.do_depth_preprocessing);
   depth_preprocessing_num_dilations(params.depth_preprocessing_num_dilations);
+  do_empty_space_clearing(params.do_empty_space_clearing);
 
   // ======= ESDF INTEGRATOR =======
   esdf_integrator().esdf_slice_min_height(
@@ -648,6 +649,11 @@ void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
 }
 
 void Mapper::clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer) {
+  // If empty space clearing not requested then no-op.
+  if (!do_empty_space_clearing_) {
+    return;
+  }
+
   // Get the empty space blocks that need an update.
   std::vector<Index3D> blocks_to_update = getBlocksToUpdate(
       BlocksToUpdateType::kEmptySpaceClearing, check_full_layer);
@@ -1063,6 +1069,7 @@ parameters::ParameterTreeNode Mapper::getParameterTree(
                          depth_preprocessing_num_dilations_),
        ParameterTreeNode("exclude_last_view_from_decay",
                          exclude_last_view_from_decay_),
+       ParameterTreeNode("do_empty_space_clearing", do_empty_space_clearing_),
        tsdf_integrator_.getParameterTree("camera_tsdf_integrator"),
        lidar_tsdf_integrator_.getParameterTree("lidar_tsdf_integrator"),
        color_integrator_.getParameterTree(),

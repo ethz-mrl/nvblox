@@ -48,6 +48,12 @@ constexpr Param<bool>::Description kExcludeLastViewFromDecayParamDesc{
     "Whether contributions from the last depth frame should be excluded when "
     "decaying"};
 
+// ======= EMPTY SPACE BLOCK CLEARING =======
+constexpr Param<bool>::Description kDoEmptySpaceClearingParamDesc{
+    "do_empty_space_clearing", true,
+    "Whether blocks marked empty in the empty space layer should be cleared "
+    "from the configured layers."};
+
 /// A structure containing the mapper parameters. This object can be used to set
 /// all parameters of a mapper.
 struct MapperParams {
@@ -55,6 +61,7 @@ struct MapperParams {
   Param<int> depth_preprocessing_num_dilations{
       kDepthPreprocessingNumDilationsParamDesc};
   Param<bool> exclude_last_view_from_decay{kExcludeLastViewFromDecayParamDesc};
+  Param<bool> do_empty_space_clearing{kDoEmptySpaceClearingParamDesc};
 
   EsdfIntegratorParams esdf_integrator_params;
   ProjectiveIntegratorParams projective_integrator_params;

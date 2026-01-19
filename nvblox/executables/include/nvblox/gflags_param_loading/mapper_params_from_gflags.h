@@ -27,6 +27,10 @@ namespace nvblox {
 DEFINE_bool(do_depth_preprocessing, kDoDepthPrepocessingParamDesc.default_value,
             kDoDepthPrepocessingParamDesc.help_string);
 
+DEFINE_bool(do_empty_space_clearing,
+            kDoEmptySpaceClearingParamDesc.default_value,
+            kDoEmptySpaceClearingParamDesc.help_string);
+
 DEFINE_int32(depth_preprocessing_num_dilations,
              kDepthPreprocessingNumDilationsParamDesc.default_value,
              kDepthPreprocessingNumDilationsParamDesc.help_string);
@@ -328,6 +332,14 @@ inline MapperParams get_mapper_params_from_gflags() {
               << FLAGS_esdf_slice_height;
     params.esdf_integrator_params.esdf_slice_height =
         static_cast<float>(FLAGS_esdf_slice_height);
+  }
+  //   Map clearing
+  if (!gflags::GetCommandLineFlagInfoOrDie("do_empty_space_clearing")
+           .is_default) {
+    LOG(INFO) << "command line parameter found: "
+                 "do_empty_space_clearing = "
+              << FLAGS_do_empty_space_clearing;
+    params.do_empty_space_clearing = FLAGS_do_empty_space_clearing;
   }
 
   // ======= PROJECTIVE INTEGRATOR (TSDF/COLOR/OCCUPANCY) =======
