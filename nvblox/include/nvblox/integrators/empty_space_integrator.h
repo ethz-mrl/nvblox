@@ -31,6 +31,15 @@ class EmptySpaceIntegrator {
   ///@return std::vector<Index3D> holding indices of all blocks that are marked
   /// empty.
   std::vector<Index3D> getIndicesOfAllBlocksMarkedEmpty(
+      EmptySpaceLayer* empty_space_layer_ptr);
+
+  /// @brief Gets indices of blocks marked empty in EmptySpace layer.
+  /// @param block_indices_to_consider Subset of indices to check.
+  /// @param empty_space_layer_ptr EmptySpace layer that holds the empty
+  /// flags.
+  ///@return std::vector<Index3D> holding indices of all blocks that are marked
+  /// empty.
+  std::vector<Index3D> getIndicesOfAllBlocksMarkedEmpty(
       const std::vector<Index3D>& block_indices_to_consider,
       EmptySpaceLayer* empty_space_layer_ptr);
 
@@ -55,14 +64,49 @@ class EmptySpaceIntegrator {
       LayerType* layer_to_modify_ptr, EmptySpaceLayer* empty_space_layer_ptr);
 
   // Parameter getters and setters
-  /// @brief Get the layer types that should be cleared by empty space clearing.
+  /// @brief Get the layer types that should be cleared by empty space
+  /// clearing.
   /// @return LayerTypeBitMask indicating which layers should be cleared.
   LayerTypeBitMask layers_to_clear() const { return layers_to_clear_; }
 
-  /// @brief Set the layer types that should be cleared by empty space clearing.
-  /// @param layers_to_clear BitMask indicating which layers should be cleared.
+  /// @brief Set the layer types that should be cleared by empty space
+  /// clearing.
+  /// @param layers_to_clear BitMask indicating which layers should be
+  /// cleared.
   void layers_to_clear(const LayerTypeBitMask& layers_to_clear) {
     layers_to_clear_ = layers_to_clear;
+  }
+
+  /// @brief Get classifier type used to determine empty state.
+  /// @return EmptynessClassifierType indicating which classifier type should be
+  /// used.
+  EmptynessClassifierType emptyness_classifier_type() const {
+    return emptyness_classifier_type_;
+  }
+
+  /// @brief Set classifier type used to determine empty state.
+  /// @param emptyness_classifier_type EmptynessClassifierType indicating which
+  /// classifier type is being used.
+  void emptyness_classifier_type(
+      const EmptynessClassifierType& emptyness_classifier_type) {
+    emptyness_classifier_type_ = emptyness_classifier_type;
+  }
+
+  /// @brief Get voxel weight threshold used for
+  /// EmptynessClassifierType::kBlockWiseMinWeight.
+  /// @return float indicating what accumulated voxel weight is used as
+  /// threshold to set block as empty.
+  float accumulated_voxel_weight_threshold() const {
+    return accumulated_voxel_weight_threshold_;
+  }
+
+  /// @brief Set voxel weight threshold used for
+  /// EmptynessClassifierType::kBlockWiseMinWeight.
+  /// @param accumulated_voxel_weight_threshold float indicating what
+  /// accumulated voxel weight is used as threshold to set block as empty.
+  void accumulated_voxel_weight_threshold(
+      const float& accumulated_voxel_weight_threshold) {
+    accumulated_voxel_weight_threshold_ = accumulated_voxel_weight_threshold;
   }
 
   /// Return the parameter tree.
@@ -85,6 +129,12 @@ class EmptySpaceIntegrator {
 
   LayerTypeBitMask layers_to_clear_{
       kEmptySpaceIntegratorLayersToClearParamDesc.default_value};
+
+  EmptynessClassifierType emptyness_classifier_type_{
+      kEmptynessClassifierTypeParamDesc.default_value};
+
+  float accumulated_voxel_weight_threshold_{
+      kAccumulatedVoxelWeightThresholdParamDesc.default_value};
 };
 
 template <typename LayerType>

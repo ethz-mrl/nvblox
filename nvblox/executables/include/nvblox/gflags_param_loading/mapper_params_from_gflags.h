@@ -205,6 +205,11 @@ DEFINE_double(max_tsdf_distance_for_occupancy_m,
               kMaxTsdfDistanceForOccupancyMParamDesc.default_value,
               kMaxTsdfDistanceForOccupancyMParamDesc.help_string);
 
+// ======= EMPTY SPACE INTEGRATOR =======
+DEFINE_double(accumulated_voxel_weight_threshold,
+              kAccumulatedVoxelWeightThresholdParamDesc.default_value,
+              kAccumulatedVoxelWeightThresholdParamDesc.help_string);
+
 DEFINE_int64(
     max_unobserved_to_keep_consecutive_occupancy_ms,
     static_cast<int64_t>(
@@ -656,6 +661,16 @@ inline MapperParams get_mapper_params_from_gflags() {
               << FLAGS_check_neighborhood;
     params.freespace_integrator_params.check_neighborhood =
         FLAGS_check_neighborhood;
+  }
+
+  // ======= EMPTY SPACE INTEGRATOR =======
+  if (!gflags::GetCommandLineFlagInfoOrDie("accumulated_voxel_weight_threshold")
+           .is_default) {
+    LOG(INFO)
+        << "Command line parameter found: accumulated_voxel_weight_threshold = "
+        << FLAGS_accumulated_voxel_weight_threshold;
+    params.empty_space_integrator_params.accumulated_voxel_weight_threshold =
+        static_cast<float>(FLAGS_accumulated_voxel_weight_threshold);
   }
 
   // return the written params

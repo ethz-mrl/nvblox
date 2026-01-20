@@ -12,7 +12,7 @@ EmptySpaceIntegrator::EmptySpaceIntegrator(
     std::shared_ptr<CudaStream> cuda_stream)
     : cuda_stream_(cuda_stream) {}
 
-__global__ void updateEmptySpaceKernel(
+__global__ void updateEmptySpaceStrictKernel(
     int num_block_indices_to_update, const TsdfBlock** tsdf_blocks_to_update,
     EmptySpaceBlock** empty_space_blocks_to_update,
     float truncation_distance_m) {
@@ -38,8 +38,9 @@ __global__ void updateEmptySpaceKernel(
   // A block is considered occupied if ANY voxel is:
   // 1. Observed (weight > 0) AND
   // 2. Within truncation distance of a surface
-  if (tsdf_voxel.weight > 0.0f && truncation_distance_m > tsdf_voxel.distance) {
-    atomicExch(&occupied_flag, 1);
+  if (tsdf_voxel.weight > 0.0f &&
+      std::abs(tsdf_voxel.distance) < truncation_distance_m) {
+    occupied_flag = 1;
   }
 
   __syncthreads();
@@ -47,6 +48,54 @@ __global__ void updateEmptySpaceKernel(
   // The first thread of the block updates the shared flag.
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
     empty_space_blocks_to_update[blockIdx.x]->is_empty = (occupied_flag == 0);
+  }
+}
+
+// NOTE(@bmicha) benchmark warp shuffles for this kernel and see...
+__global__ void updateEmptySpaceBlockWiseMinWeightKernel(
+    int num_block_indices_to_update, const TsdfBlock** tsdf_blocks_to_update,
+    EmptySpaceBlock** empty_space_blocks_to_update, float truncation_distance_m,
+    int num_voxels_in_block, float accumulated_voxel_weight_threshold) {
+  if (blockIdx.x >= num_block_indices_to_update) {
+    return;
+  }
+
+  // Shared memory for storing accumulated weight of all voxels in block.
+  extern __shared__ float voxel_weight_acc[];
+
+  // Mapping 3D threads to 1D shared memory index
+  int tid = threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x +
+            threadIdx.x;
+
+  const Index3D voxel_index(threadIdx.x, threadIdx.y, threadIdx.z);
+
+  const TsdfVoxel& tsdf_voxel =
+      tsdf_blocks_to_update[blockIdx.x]
+          ->voxels[voxel_index.x()][voxel_index.y()][voxel_index.z()];
+
+  // Push voxel weight to shared memory accumulator for summation.
+  if (std::abs(tsdf_voxel.distance) < truncation_distance_m) {
+    voxel_weight_acc[tid] = tsdf_voxel.weight;
+  } else {
+    voxel_weight_acc[tid] = 0.0f;
+  }
+
+  __syncthreads();
+
+  // Sum voxel weights.
+  for (int s = num_voxels_in_block / 2; s > 0; s >>= 1) {
+    if (tid < s) {
+      voxel_weight_acc[tid] += voxel_weight_acc[tid + s];
+    }
+    __syncthreads();
+  }
+
+  // The first thread of the block updates the shared flag.
+  if (tid == 0) {
+    float total_block_weight = voxel_weight_acc[0];
+
+    empty_space_blocks_to_update[blockIdx.x]->is_empty =
+        (total_block_weight <= accumulated_voxel_weight_threshold);
   }
 }
 
@@ -58,11 +107,31 @@ void EmptySpaceIntegrator::launchIntegrationKernel(
   const int num_thread_blocks = block_indices_to_update_device_.size();
 
   // Launch Kernel for update
-  updateEmptySpaceKernel<<<num_thread_blocks, kThreadsPerBlock, 0,
-                           *cuda_stream_>>>(
-      block_indices_to_update_device_.size(),
-      tsdf_blocks_to_update_device_.data(),
-      empty_space_blocks_to_update_device_.data(), truncation_distance_m);
+  switch (emptyness_classifier_type_) {
+    case EmptynessClassifierType::kStrict: {
+      updateEmptySpaceStrictKernel<<<num_thread_blocks, kThreadsPerBlock, 0,
+                                     *cuda_stream_>>>(
+          block_indices_to_update_device_.size(),
+          tsdf_blocks_to_update_device_.data(),
+          empty_space_blocks_to_update_device_.data(), truncation_distance_m);
+      break;
+    }
+    case EmptynessClassifierType::kBlockWiseMinWeight: {
+      int numVoxelsInBlock =
+          kThreadsPerBlock.x * kThreadsPerBlock.y * kThreadsPerBlock.z;
+      updateEmptySpaceBlockWiseMinWeightKernel<<<
+          num_thread_blocks, kThreadsPerBlock, numVoxelsInBlock * sizeof(float),
+          *cuda_stream_>>>(block_indices_to_update_device_.size(),
+                           tsdf_blocks_to_update_device_.data(),
+                           empty_space_blocks_to_update_device_.data(),
+                           truncation_distance_m, numVoxelsInBlock,
+                           accumulated_voxel_weight_threshold_);
+      break;
+    }
+    default:
+      CHECK(false) << "Emptyness classifier type not implemented.";
+  }
+
   checkCudaErrors(cudaPeekAtLastError());
 }
 
@@ -141,6 +210,12 @@ __global__ void getIndicesOfAllBlocksMarkedEmptyKernel(
       output_block_indices[idx] = block_indices_to_check[block_idx];
     }
   }
+}
+
+std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
+    EmptySpaceLayer* empty_space_layer_ptr) {
+  return getIndicesOfAllBlocksMarkedEmpty(
+      empty_space_layer_ptr->getAllBlockIndices(), empty_space_layer_ptr);
 }
 
 std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
@@ -246,7 +321,13 @@ parameters::ParameterTreeNode EmptySpaceIntegrator::getParameterTree(
       (name_remap.empty()) ? "empty_space_integrator" : name_remap;
   using parameters::ParameterTreeNode;
   return ParameterTreeNode(
-      name, {ParameterTreeNode("layers_to_clear:", layers_to_clear_)});
+      name, {
+                ParameterTreeNode("layers_to_clear:", layers_to_clear_),
+                ParameterTreeNode("emptyness_classifier_type:",
+                                  emptyness_classifier_type_),
+                ParameterTreeNode("accumulated_voxel_weight_threshold:",
+                                  accumulated_voxel_weight_threshold_),
+            });
 }
 
 }  // namespace nvblox

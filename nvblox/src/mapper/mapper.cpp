@@ -280,6 +280,10 @@ void Mapper::setMapperParams(const MapperParams& params) {
   // ======= EMPTY SPACE INTEGRATOR =======
   empty_space_integrator().layers_to_clear(
       params.empty_space_integrator_params.layers_to_clear);
+  empty_space_integrator().emptyness_classifier_type(
+      params.empty_space_integrator_params.emptyness_classifier_type);
+  empty_space_integrator().accumulated_voxel_weight_threshold(
+      params.empty_space_integrator_params.accumulated_voxel_weight_threshold);
 }
 
 TsdfLayer& Mapper::tsdf_layer() {

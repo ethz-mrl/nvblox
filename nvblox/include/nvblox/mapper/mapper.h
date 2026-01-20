@@ -245,7 +245,6 @@ class Mapper : public MapperBase {
       UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
 
   /// Removes blocks marked empty in EmptySpaceLayer from the specified layers.
-  // TODO(@bmicha) allow passing layers to be cleared from.
   void clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer);
 
   /// Serialize selected layers.
