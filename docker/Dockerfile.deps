@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=nvcr.io/nvidia/cuda:12.8.0-devel-ubuntu24.04
+ARG BASE_IMAGE=nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
 FROM ${BASE_IMAGE}
 
 # TZData goes first.
@@ -30,8 +30,7 @@ RUN python3 -m venv /opt/venv
 RUN . /opt/venv/bin/activate && \
     python3 -m pip install --ignore-installed --upgrade pip && \
     python3 -m pip install \
-    # Pytorch. Note that this version is only compatible with pre-cxx11 ABI binaries. \
-    torch==2.4
+    torch==2.8.0
 
 # Install python deps.
 RUN . /opt/venv/bin/activate && \
