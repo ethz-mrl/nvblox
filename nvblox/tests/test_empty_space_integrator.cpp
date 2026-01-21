@@ -266,6 +266,10 @@ TEST(EmptySpaceParameters, ParamSetterAndGetter) {
       EmptynessClassifierType::kStrict);
   EXPECT_EQ(mapper.empty_space_integrator().emptyness_classifier_type(),
             EmptynessClassifierType::kStrict);
+  mapper.empty_space_integrator().emptyness_classifier_type(
+      EmptynessClassifierType::kBlockWiseMinWeight);
+  EXPECT_EQ(mapper.empty_space_integrator().emptyness_classifier_type(),
+            EmptynessClassifierType::kBlockWiseMinWeight);
 
   mapper.empty_space_integrator().voxel_weight_threshold(2.f);
   EXPECT_EQ(mapper.empty_space_integrator().voxel_weight_threshold(), 2.f);

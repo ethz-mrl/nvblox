@@ -54,11 +54,15 @@ const Param<LayerTypeBitMask>::Description
             LayerType::kFeature,
         "Layer types that should be cleared by empty space clearing logic."};
 
-constexpr Param<EmptynessClassifierType>::Description
-    kEmptynessClassifierTypeParamDesc{
-        "emptyness_classifier_type",
-        EmptynessClassifierType::kBlockWiseMinWeight,
-        "What method to use for determining the emptyness of a block."};
+constexpr Param<
+    EmptynessClassifierType>::Description kEmptynessClassifierTypeParamDesc{
+    "emptyness_classifier_type", EmptynessClassifierType::kStrict,
+    "What method to use for determining the emptyness of a block."
+    "0: Uses kStrict mode. A block is considered NOT empty iff at least one "
+    "voxel within has been observed (weight > 0) and is within truncation "
+    "distance."
+    "1: Uses kBlockWiseMinWeight mode. A block is considered empty "
+    "if the sum of all its voxel weights does not reach a minimum threshold."};
 
 constexpr Param<float>::Description kVoxelWeightThresholdParamDesc{
     "voxel_weight_threshold", 0.5f,

@@ -245,7 +245,8 @@ class Mapper : public MapperBase {
       UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
 
   /// Removes blocks marked empty in EmptySpaceLayer from the specified layers.
-  void clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer);
+  void clearEmptySpaceBlocksInLayers(
+      UpdateFullLayer check_full_layer = UpdateFullLayer::kNo);
 
   /// Serialize selected layers.
   ///

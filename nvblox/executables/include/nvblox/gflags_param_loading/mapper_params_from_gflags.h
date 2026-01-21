@@ -205,11 +205,6 @@ DEFINE_double(max_tsdf_distance_for_occupancy_m,
               kMaxTsdfDistanceForOccupancyMParamDesc.default_value,
               kMaxTsdfDistanceForOccupancyMParamDesc.help_string);
 
-// ======= EMPTY SPACE INTEGRATOR =======
-DEFINE_double(voxel_weight_threshold,
-              kVoxelWeightThresholdParamDesc.default_value,
-              kVoxelWeightThresholdParamDesc.help_string);
-
 DEFINE_int64(
     max_unobserved_to_keep_consecutive_occupancy_ms,
     static_cast<int64_t>(
@@ -230,6 +225,15 @@ DEFINE_int64(
 
 DEFINE_bool(check_neighborhood, kCheckNeighborhoodParamDesc.default_value,
             kCheckNeighborhoodParamDesc.help_string);
+
+// ======= EMPTY SPACE INTEGRATOR =======
+DEFINE_double(voxel_weight_threshold,
+              kVoxelWeightThresholdParamDesc.default_value,
+              kVoxelWeightThresholdParamDesc.help_string);
+
+DEFINE_int32(emptyness_classifier_type,
+             static_cast<int>(kEmptynessClassifierTypeParamDesc.default_value),
+             kEmptynessClassifierTypeParamDesc.help_string);
 
 // <<<<<<<<<<<<<<<<<<<<<<<<<< GET THE PARAMS >>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -670,6 +674,13 @@ inline MapperParams get_mapper_params_from_gflags() {
               << FLAGS_voxel_weight_threshold;
     params.empty_space_integrator_params.voxel_weight_threshold =
         static_cast<float>(FLAGS_voxel_weight_threshold);
+  }
+  if (!gflags::GetCommandLineFlagInfoOrDie("emptyness_classifier_type")
+           .is_default) {
+    LOG(INFO) << "Command line parameter found: emptyness_classifier_type "
+              << FLAGS_emptyness_classifier_type;
+    params.empty_space_integrator_params.emptyness_classifier_type =
+        static_cast<EmptynessClassifierType>(FLAGS_emptyness_classifier_type);
   }
 
   // return the written params

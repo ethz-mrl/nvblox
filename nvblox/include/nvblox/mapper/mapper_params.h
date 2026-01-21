@@ -50,7 +50,7 @@ constexpr Param<bool>::Description kExcludeLastViewFromDecayParamDesc{
 
 // ======= EMPTY SPACE BLOCK CLEARING =======
 constexpr Param<bool>::Description kDoEmptySpaceClearingParamDesc{
-    "do_empty_space_clearing", true,
+    "do_empty_space_clearing", false,
     "Whether blocks marked empty in the empty space layer should be cleared "
     "from the configured layers."};
 
