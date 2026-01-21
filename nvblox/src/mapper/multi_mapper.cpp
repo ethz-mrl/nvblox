@@ -345,6 +345,22 @@ void MultiMapper::updateEsdf() {
   }
 }
 
+void MultiMapper::updateEmptySpace() {
+  // TODO(@bmicha) currently we only support empty space from tsdf layers.
+  if (!hasTsdfLayer(background_mapper_->projective_layer_type())) {
+    return;
+  }
+  background_mapper_->updateEmptySpace();
+}
+
+void MultiMapper::clearEmptySpaceBlocks() {
+  // TODO(@bmicha) currently we only support empty space from tsdf layers.
+  if (!hasTsdfLayer(background_mapper_->projective_layer_type())) {
+    return;
+  }
+  background_mapper_->clearEmptySpaceBlocksInLayers();
+}
+
 void MultiMapper::integrateColor(const ColorImage& color_frame,
                                  const std::vector<ImageBoundingBox>&,
                                  const Transform& T_L_C, const Camera& camera) {
