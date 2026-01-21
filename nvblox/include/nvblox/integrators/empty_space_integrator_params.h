@@ -60,8 +60,8 @@ constexpr Param<EmptynessClassifierType>::Description
         EmptynessClassifierType::kBlockWiseMinWeight,
         "What method to use for determining the emptyness of a block."};
 
-constexpr Param<float>::Description kAccumulatedVoxelWeightThresholdParamDesc{
-    "accumulated_voxel_weight_threshold", 0.5f,
+constexpr Param<float>::Description kVoxelWeightThresholdParamDesc{
+    "voxel_weight_threshold", 0.5f,
     "Threshold for accumulated voxel weight within a block to still be "
     "considered empty. Used by EmptynessClassifierType::kBlockWiseMinWeight."};
 
@@ -70,8 +70,7 @@ struct EmptySpaceIntegratorParams {
       kEmptySpaceIntegratorLayersToClearParamDesc};
   Param<EmptynessClassifierType> emptyness_classifier_type{
       kEmptynessClassifierTypeParamDesc};
-  Param<float> accumulated_voxel_weight_threshold{
-      kAccumulatedVoxelWeightThresholdParamDesc};
+  Param<float> voxel_weight_threshold{kVoxelWeightThresholdParamDesc};
 };
 
 }  // namespace nvblox

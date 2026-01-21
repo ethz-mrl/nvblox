@@ -202,7 +202,7 @@ TEST_P(EmptySpaceParamTest, GenericEmptySpaceBehavior) {
   mapper.empty_space_integrator().emptyness_classifier_type(cfg.classifier);
   mapper.empty_space_integrator().layers_to_clear(
       LayerTypeBitMask(cfg.layer_type_to_clear));
-  mapper.empty_space_integrator().accumulated_voxel_weight_threshold(
+  mapper.empty_space_integrator().voxel_weight_threshold(
       cfg.voxel_weight_threshold);
   mapper.do_empty_space_clearing(cfg.do_empty_space_clearing);
   mapper.tsdf_integrator().truncation_distance_vox(kTruncationDistanceVox_);
@@ -267,10 +267,8 @@ TEST(EmptySpaceParameters, ParamSetterAndGetter) {
   EXPECT_EQ(mapper.empty_space_integrator().emptyness_classifier_type(),
             EmptynessClassifierType::kStrict);
 
-  mapper.empty_space_integrator().accumulated_voxel_weight_threshold(2.f);
-  EXPECT_EQ(
-      mapper.empty_space_integrator().accumulated_voxel_weight_threshold(),
-      2.f);
+  mapper.empty_space_integrator().voxel_weight_threshold(2.f);
+  EXPECT_EQ(mapper.empty_space_integrator().voxel_weight_threshold(), 2.f);
 }
 
 int main(int argc, char** argv) {

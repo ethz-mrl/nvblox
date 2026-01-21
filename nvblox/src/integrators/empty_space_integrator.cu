@@ -55,7 +55,7 @@ __global__ void updateEmptySpaceStrictKernel(
 __global__ void updateEmptySpaceBlockWiseMinWeightKernel(
     int num_block_indices_to_update, const TsdfBlock** tsdf_blocks_to_update,
     EmptySpaceBlock** empty_space_blocks_to_update, float truncation_distance_m,
-    int num_voxels_in_block, float accumulated_voxel_weight_threshold) {
+    int num_voxels_in_block, float voxel_weight_threshold) {
   if (blockIdx.x >= num_block_indices_to_update) {
     return;
   }
@@ -95,7 +95,7 @@ __global__ void updateEmptySpaceBlockWiseMinWeightKernel(
     float total_block_weight = voxel_weight_acc[0];
 
     empty_space_blocks_to_update[blockIdx.x]->is_empty =
-        (total_block_weight <= accumulated_voxel_weight_threshold);
+        (total_block_weight <= voxel_weight_threshold);
   }
 }
 
@@ -125,7 +125,7 @@ void EmptySpaceIntegrator::launchIntegrationKernel(
                            tsdf_blocks_to_update_device_.data(),
                            empty_space_blocks_to_update_device_.data(),
                            truncation_distance_m, numVoxelsInBlock,
-                           accumulated_voxel_weight_threshold_);
+                           voxel_weight_threshold_);
       break;
     }
     default:
@@ -321,13 +321,13 @@ parameters::ParameterTreeNode EmptySpaceIntegrator::getParameterTree(
       (name_remap.empty()) ? "empty_space_integrator" : name_remap;
   using parameters::ParameterTreeNode;
   return ParameterTreeNode(
-      name, {
-                ParameterTreeNode("layers_to_clear:", layers_to_clear_),
-                ParameterTreeNode("emptyness_classifier_type:",
-                                  emptyness_classifier_type_),
-                ParameterTreeNode("accumulated_voxel_weight_threshold:",
-                                  accumulated_voxel_weight_threshold_),
-            });
+      name,
+      {
+          ParameterTreeNode("layers_to_clear:", layers_to_clear_),
+          ParameterTreeNode("emptyness_classifier_type:",
+                            emptyness_classifier_type_),
+          ParameterTreeNode("voxel_weight_threshold:", voxel_weight_threshold_),
+      });
 }
 
 }  // namespace nvblox

@@ -96,17 +96,14 @@ class EmptySpaceIntegrator {
   /// EmptynessClassifierType::kBlockWiseMinWeight.
   /// @return float indicating what accumulated voxel weight is used as
   /// threshold to set block as empty.
-  float accumulated_voxel_weight_threshold() const {
-    return accumulated_voxel_weight_threshold_;
-  }
+  float voxel_weight_threshold() const { return voxel_weight_threshold_; }
 
   /// @brief Set voxel weight threshold used for
   /// EmptynessClassifierType::kBlockWiseMinWeight.
-  /// @param accumulated_voxel_weight_threshold float indicating what
+  /// @param voxel_weight_threshold float indicating what
   /// accumulated voxel weight is used as threshold to set block as empty.
-  void accumulated_voxel_weight_threshold(
-      const float& accumulated_voxel_weight_threshold) {
-    accumulated_voxel_weight_threshold_ = accumulated_voxel_weight_threshold;
+  void voxel_weight_threshold(const float& voxel_weight_threshold) {
+    voxel_weight_threshold_ = voxel_weight_threshold;
   }
 
   /// Return the parameter tree.
@@ -133,8 +130,7 @@ class EmptySpaceIntegrator {
   EmptynessClassifierType emptyness_classifier_type_{
       kEmptynessClassifierTypeParamDesc.default_value};
 
-  float accumulated_voxel_weight_threshold_{
-      kAccumulatedVoxelWeightThresholdParamDesc.default_value};
+  float voxel_weight_threshold_{kVoxelWeightThresholdParamDesc.default_value};
 };
 
 template <typename LayerType>
