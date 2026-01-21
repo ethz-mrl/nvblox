@@ -42,7 +42,8 @@ void BlocksToUpdateTracker::addBlocksToUpdate(
       freespace_blocks_to_update_.insert(vec.begin(), vec.end());
     }
 
-    if (hasEmptySpaceLayer(projective_layer_type_)) {
+    // TODO(@bmicha) currently we only support empty space from tsdf layers.
+    if (hasTsdfLayer(projective_layer_type_)) {
       empty_space_blocks_to_update_.insert(vec.begin(), vec.end());
       empty_space_clearing_blocks_to_update_.insert(vec.begin(), vec.end());
     }
@@ -79,7 +80,8 @@ void BlocksToUpdateTracker::removeBlocksToUpdate(
         freespace_blocks_to_update_.erase(idx);
       }
 
-      if (hasEmptySpaceLayer(projective_layer_type_)) {
+      // TODO(@bmicha) currently we only support empty space from tsdf layers.
+      if (hasTsdfLayer(projective_layer_type_)) {
         empty_space_blocks_to_update_.erase(idx);
         empty_space_clearing_blocks_to_update_.erase(idx);
       }

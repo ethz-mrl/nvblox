@@ -629,13 +629,9 @@ void Mapper::updateColorMesh(UpdateFullLayer update_full_layer) {
 }
 
 void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
-  CHECK(hasEmptySpaceLayer(projective_layer_type_))
+  // TODO(@bmicha) currently we only support empty space from tsdf layers.
+  CHECK(hasTsdfLayer(projective_layer_type_))
       << "Trying to update the empty space layer while it is not enabled.";
-
-  // NOTE(@bmicha) empty space layer currently only supported for TSDF.
-  if (!hasTsdfLayer(projective_layer_type_)) {
-    return;
-  }
 
   // Get the empty space blocks that need an update
   std::vector<Index3D> blocks_to_update =
@@ -760,9 +756,7 @@ void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
     esdf_integrator_.integrateBlocks(
         layers_.get<TsdfLayer>(), layers_.get<FreespaceLayer>(),
         blocks_to_update, layers_.getPtr<EsdfLayer>());
-  } else if (projective_layer_type_ == ProjectiveLayerType::kTsdf ||
-             projective_layer_type_ ==
-                 ProjectiveLayerType::kTsdfWithEmptySpace) {
+  } else if (projective_layer_type_ == ProjectiveLayerType::kTsdf) {
     esdf_integrator_.integrateBlocks(layers_.get<TsdfLayer>(), blocks_to_update,
                                      layers_.getPtr<EsdfLayer>());
   } else if (projective_layer_type_ == ProjectiveLayerType::kOccupancy) {
@@ -898,16 +892,14 @@ void Mapper::clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear) {
                                                        *cuda_stream_);
     layers_.getPtr<FeatureMeshLayer>()->clearBlocksAsync(blocks_to_clear,
                                                          *cuda_stream_);
+    // TODO(@bmicha) currently we only support empty space from tsdf layers.
+    layers_.getPtr<EmptySpaceLayer>()->clearBlocksAsync(blocks_to_clear,
+                                                        *cuda_stream_);
   }
   // Clear the freespace blocks, if existent.
   if (hasFreespaceLayer(projective_layer_type_)) {
     layers_.getPtr<FreespaceLayer>()->clearBlocksAsync(blocks_to_clear,
                                                        *cuda_stream_);
-  }
-  // Clear the empty space blocks, if existent.
-  if (hasEmptySpaceLayer(projective_layer_type_)) {
-    layers_.getPtr<EmptySpaceLayer>()->clearBlocksAsync(blocks_to_clear,
-                                                        *cuda_stream_);
   }
 
   // Clear the blocks in the esdf layer.

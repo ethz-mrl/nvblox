@@ -182,6 +182,7 @@ void checkBlockClearingMatchesFlags(const EmptySpaceTestConfig& cfg,
   };
 
   // NOTE(@bmicha) currently we only test with tsdf and esdf.
+  // To add more layer types, add integration and update logic to test.
   switch (cfg.layer_type_to_clear) {
     case LayerType::kTsdf:
       return run_for_layer(mapper.tsdf_layer());
@@ -197,7 +198,7 @@ TEST_P(EmptySpaceParamTest, GenericEmptySpaceBehavior) {
 
   // Setup map with test config.
   Mapper mapper{voxel_size_m_, MemoryType::kUnified,
-                ProjectiveLayerType::kTsdfWithEmptySpace};
+                ProjectiveLayerType::kTsdf};
   mapper.empty_space_integrator().emptyness_classifier_type(cfg.classifier);
   mapper.empty_space_integrator().layers_to_clear(
       LayerTypeBitMask(cfg.layer_type_to_clear));
