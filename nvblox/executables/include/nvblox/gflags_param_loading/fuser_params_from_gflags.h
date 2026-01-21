@@ -56,6 +56,12 @@ DEFINE_string(dynamic_overlay_path, "",
               "overlays show the mask before before being post processed.");
 
 // Subsampling
+DEFINE_int32(
+    empty_space_frame_interval, 0,
+    "After what interval of frames the empty space layer should be updated and "
+    "empty blocks cleared. An interval of 100 means that after 100 frames the "
+    "empty space layer is updated and empty blocks are cleared. If 0 is "
+    "passed, there is no intermediate integration.");
 DEFINE_int32(projective_frame_subsampling, 0,
              "By what amount to subsample the TSDF or occupancy frames. A "
              "subsample of 3 means only every 3rd frame is taken.");
@@ -158,6 +164,12 @@ inline void set_fuser_params_from_gflags(Fuser* fuser_ptr) {
     fuser_ptr->dynamic_overlay_path_ = FLAGS_dynamic_overlay_path;
   }
   // Subsampling flags
+  if (!gflags::GetCommandLineFlagInfoOrDie("empty_space_frame_interval")
+           .is_default) {
+    LOG(INFO) << "Command line parameter found: empty_space_frame_interval = "
+              << FLAGS_empty_space_frame_interval;
+    fuser_ptr->empty_space_frame_interval_ = FLAGS_empty_space_frame_interval;
+  }
   if (!gflags::GetCommandLineFlagInfoOrDie("projective_frame_subsampling")
            .is_default) {
     LOG(INFO) << "Command line parameter found: projective_frame_subsampling = "

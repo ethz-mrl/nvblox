@@ -69,6 +69,8 @@ class Fuser {
   bool outputTimingsToFile();
   // Output the serialized map to a file
   bool outputMapToFile();
+  // Output block clearing stats to command line
+  void outputBlockClearingStatsToCL();
 
   // Get access to the underlying mappers.
   std::shared_ptr<Mapper> static_mapper();
@@ -99,6 +101,7 @@ class Fuser {
   std::unique_ptr<datasets::RgbdDataLoaderInterface> data_loader_;
 
   // Temporal subsampling params
+  int empty_space_frame_interval_ = 1;
   int projective_frame_subsampling_ = 1;
   int color_frame_subsampling_ = 1;
   int mesh_frame_subsampling_ = 1;
