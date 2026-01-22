@@ -16,7 +16,6 @@ limitations under the License.
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
-#include "nvblox/core/layer_type_traits.h"
 #include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/mapper/mapper.h"
 #include "nvblox/tests/integrator_utils.h"
