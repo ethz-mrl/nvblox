@@ -379,6 +379,30 @@ class EmptySpaceLayer : public BlockLayer<EmptySpaceBlock> {
   EmptySpaceLayer& operator=(EmptySpaceLayer&& other) = default;
 };
 
+class EmptyEsdfLayer : public BlockLayer<EmptyEsdfBlock> {
+ public:
+  typedef std::shared_ptr<EmptyEsdfLayer> Ptr;
+  typedef std::shared_ptr<const EmptyEsdfLayer> ConstPtr;
+
+  /// Constructor
+  /// @param block_size The side-length in meters of a block.
+  /// @param memory_pool_params Params governing where and how memory is
+  /// allocated.
+  EmptyEsdfLayer(float block_size, BlockMemoryPoolParams memory_pool_params)
+      : BlockLayer<EmptyEsdfBlock>(block_size, memory_pool_params) {}
+  EmptyEsdfLayer() = delete;
+  virtual ~EmptyEsdfLayer() = default;
+
+  /// Use the inherited copyFrom() instead of copy constructors
+  EmptyEsdfLayer(const EmptyEsdfLayer& other) = delete;
+  EmptyEsdfLayer(const EmptyEsdfLayer& other, MemoryType memory_type) = delete;
+  EmptyEsdfLayer& operator=(const EmptyEsdfLayer& other) = delete;
+
+  /// Move operations
+  EmptyEsdfLayer(EmptyEsdfLayer&& other) = default;
+  EmptyEsdfLayer& operator=(EmptyEsdfLayer&& other) = default;
+};
+
 namespace traits {
 
 // Helpers for detecting if a type is a layer.

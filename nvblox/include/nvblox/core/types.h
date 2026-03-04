@@ -77,6 +77,7 @@ constexpr bool isFloatType() {
 enum class LayerType : int {
   kTsdf,
   kEsdf,
+  kEmptyEsdf,
   kColor,
   kColorMesh,
   kFeatureMesh,
@@ -97,6 +98,9 @@ inline std::string toString(const LayerTypeBitMask& bitmask) {
   }
   if (bitmask & LayerType::kEsdf) {
     layer_names.push_back("kEsdf");
+  }
+  if (bitmask & LayerType::kEmptyEsdf) {
+    layer_names.push_back("kEmptyEsdf");
   }
   if (bitmask & LayerType::kColor) {
     layer_names.push_back("kColor");

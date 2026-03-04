@@ -368,6 +368,11 @@ class Mapper : public MapperBase {
     return layers_.get<EmptySpaceLayer>();
   }
   /// Getter
+  ///@return const EmptyEsdfLayer& empty esdf layer
+  const EmptyEsdfLayer& empty_esdf_layer() const {
+    return layers_.get<EmptyEsdfLayer>();
+  }
+  /// Getter
   ///@return const ColorLayer& Color layer
   const ColorLayer& color_layer() const { return layers_.get<ColorLayer>(); }
   /// Getter
@@ -407,6 +412,9 @@ class Mapper : public MapperBase {
   /// Getter
   ///@return EmptySpaceLayer& empty space layer
   EmptySpaceLayer& empty_space_layer();
+  /// Getter
+  ///@return EmptyEsdfLayer& empty esdf layer
+  EmptyEsdfLayer& empty_esdf_layer();
   /// Getter
   ///@return ColorLayer& Color layer
   ColorLayer& color_layer();
@@ -626,6 +634,9 @@ class Mapper : public MapperBase {
   /// @param do_empty_space_clearing Whether blocks marked empty in the empty
   /// space layer should be cleared from the configured layers.
   void do_empty_space_clearing(const bool do_empty_space_clearing) {
+    if (do_empty_space_clearing) {
+      CHECK(layers_.exists<EmptySpaceLayer>());
+    }
     do_empty_space_clearing_ = do_empty_space_clearing;
   }
 

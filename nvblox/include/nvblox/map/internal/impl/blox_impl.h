@@ -105,4 +105,8 @@ constexpr size_t sizeInBytes(const EmptySpaceBlock*) {
   return sizeof(EmptySpaceBlock);
 }
 
+constexpr size_t sizeInBytes(const EmptyEsdfBlock*) {
+  return sizeof(EmptyEsdfBlock);
+}
+
 }  // namespace nvblox

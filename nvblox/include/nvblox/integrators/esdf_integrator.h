@@ -53,9 +53,10 @@ class EsdfIntegrator {
   /// @param block_indices The indices of the EsdfLayer which should be updated
   /// (usually because the TSDF at these indices has changed).
   /// @param[out] esdf_layer The output EsdfLayer
-  virtual void integrateBlocks(const TsdfLayer& tsdf_layer,
-                               const std::vector<Index3D>& block_indices,
-                               EsdfLayer* esdf_layer);
+  virtual void integrateBlocks(
+      const TsdfLayer& tsdf_layer, const std::vector<Index3D>& block_indices,
+      EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer = nullptr,
+      const EmptySpaceLayer* empty_space_layer = nullptr);
 
   /// Build an EsdfLayer from a TsdfLayer and a FreespaceLayer
   /// (incremental) (on GPU)
@@ -65,19 +66,22 @@ class EsdfIntegrator {
   /// @param block_indices The indices of the EsdfLayer which should be updated
   /// (usually because the TSDF at these indices has changed).
   /// @param[out] esdf_layer The output EsdfLayer
-  virtual void integrateBlocks(const TsdfLayer& tsdf_layer,
-                               const FreespaceLayer& freespace_layer,
-                               const std::vector<Index3D>& block_indices,
-                               EsdfLayer* esdf_layer);
+  virtual void integrateBlocks(
+      const TsdfLayer& tsdf_layer, const FreespaceLayer& freespace_layer,
+      const std::vector<Index3D>& block_indices, EsdfLayer* esdf_layer,
+      EmptyEsdfLayer* empty_esdf_layer = nullptr,
+      const EmptySpaceLayer* empty_space_layer = nullptr);
 
   /// @brief Build an EsdfLayer from an OccupancyLayer(incremental) (on GPU)
   /// @param occupancy_layer The input OccupancyLayer
   /// @param block_indices The indices of the EsdfLayer which should be updated
   /// (usually because the Occupancy at these indices has changed).
   /// @param[out] esdf_layer The output EsdfLayer
-  virtual void integrateBlocks(const OccupancyLayer& occupancy_layer,
-                               const std::vector<Index3D>& block_indices,
-                               EsdfLayer* esdf_layer);
+  virtual void integrateBlocks(
+      const OccupancyLayer& occupancy_layer,
+      const std::vector<Index3D>& block_indices, EsdfLayer* esdf_layer,
+      EmptyEsdfLayer* empty_esdf_layer = nullptr,
+      const EmptySpaceLayer* empty_space_layer = nullptr);
 
   /// Build an EsdfLayer slice from a TsdfLayer (incremental) (on GPU)
   /// This function takes the voxels between z_min and z_max in the TsdfLayer.
@@ -271,6 +275,14 @@ class EsdfIntegrator {
   }
 
   /// A parameter getter
+  /// Whether we maintain an EmptyEsdfLayer as the second ESDF resolution.
+  /// @returns has_esdf_two_resolutions
+  bool has_esdf_two_resolutions() const { return has_esdf_two_resolutions_; }
+  /// One-time initialization for two-resolution ESDF mode.
+  /// This can only be set once and is immutable afterwards.
+  void initialize_has_esdf_two_resolutions(bool has_esdf_two_resolutions);
+
+  /// A parameter getter
   /// The height of the slice (in meters) above the lower slice.
   /// @returns esdf_slice_height
   float slice_height_thickness_m() const { return slice_height_thickness_m_; }
@@ -292,7 +304,8 @@ class EsdfIntegrator {
   template <typename LayerType>
   void integrateBlocksTemplate(
       const LayerType& layer, const std::vector<Index3D>& block_indices,
-      EsdfLayer* esdf_layer,
+      EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer = nullptr,
+      const EmptySpaceLayer* empty_space_layer = nullptr,
       const FreespaceLayer* freespace_layer_ptr = nullptr);
 
   /// Templated version of the public functions above, used internally.
@@ -303,8 +316,22 @@ class EsdfIntegrator {
       const FreespaceLayer* freespace_layer_ptr = nullptr);
 
   /// Allocate all blocks in the given block indices list.
-  void allocateBlocksOnCPU(const std::vector<Index3D>& block_indices,
-                           EsdfLayer* esdf_layer);
+  template <typename ContainerType, typename LayerType>
+  void allocateBlocksOnCPU(const ContainerType& block_indices,
+                           LayerType* layer_ptr) {
+    for (const Index3D& block_index : block_indices) {
+      layer_ptr->allocateBlockAtIndexAsync(block_index, *cuda_stream_);
+    }
+  }
+
+  /// Split block indices into indices that are marked empty or not in
+  /// empty space layer and return as block_indices_empty and
+  /// block_indices_full, respectively.
+  void splitFullAndEmptyEsdfIndices(
+      const EmptySpaceLayer* empty_space_layer,
+      const std::vector<Index3D>& block_indices,
+      device_vector<Index3D>& block_indices_full,
+      device_vector<Index3D>& block_indices_empty);
 
   /// Gets the site-finding functors for a specific layer type.
   OccupancySiteFunctor getSiteFunctor(const OccupancyLayer& layer);
@@ -333,16 +360,19 @@ class EsdfIntegrator {
   // Internal helpers for GPU computation.
   void updateNeighborBands(device_vector<Index3D>* block_indices,
                            EsdfLayer* esdf_layer,
+                           EmptyEsdfLayer* empty_esdf_layer,
                            float max_squared_esdf_distance_vox,
                            device_vector<Index3D>* updated_block_indices);
 
   void sweepBlockBandAsync(device_vector<Index3D>* block_indices,
                            EsdfLayer* esdf_layer,
+                           EmptyEsdfLayer* empty_esdf_layer,
                            float max_squared_esdf_distance_vox);
   void computeEsdf(const device_vector<Index3D>& blocks_with_sites,
-                   EsdfLayer* esdf_layer);
+                   EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer);
   void clearAllInvalid(const std::vector<Index3D>& blocks_to_clear,
-                       EsdfLayer* esdf_layer,
+                       EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer,
+                       const EmptySpaceLayer* empty_space_layer,
                        device_vector<Index3D>* updated_blocks);
 
   // Helper method to de-dupe block indices.
@@ -370,6 +400,12 @@ class EsdfIntegrator {
   float slice_height_thickness_m_ =
       kSliceHeightThicknessMParamDesc.default_value;
 
+  /// @brief EmptyEsdfLayer related parameter
+  /// Should we maintain an EmptyEsdfLayer
+  bool has_esdf_two_resolutions_ =
+      kHasEsdfTwoResolutionsParamDesc.default_value;
+  bool has_esdf_two_resolutions_initialized_ = false;
+
   /// @brief OccupancyLayer related parameter
   /// The log odds value greater than which we consider a voxel occupied
   float occupied_threshold_log_odds_ = logOddsFromProbability(0.5f);
@@ -387,6 +423,10 @@ class EsdfIntegrator {
   device_vector<Index3D> temp_indices_device_;
   host_vector<Index3D> temp_indices_host_;
   device_vector<Index3D> cleared_block_indices_device_;
+  device_vector<Index3D> block_indices_empty_esdf_device_;  // empty esdf blocks
+  host_vector<Index3D> block_indices_empty_esdf_host_;
+  device_vector<Index3D> block_indices_full_esdf_device_;  // normal esdf blocks
+  host_vector<Index3D> block_indices_full_esdf_host_;
 
   unified_ptr<int> updated_counter_device_ =
       make_unified<int>(MemoryType::kDevice);
@@ -394,10 +434,19 @@ class EsdfIntegrator {
   unified_ptr<int> cleared_counter_device_ =
       make_unified<int>(MemoryType::kDevice);
   unified_ptr<int> cleared_counter_host_ = make_unified<int>(MemoryType::kHost);
+  unified_ptr<int> empty_blocks_counter_device_ =
+      make_unified<int>(MemoryType::kDevice);
+  unified_ptr<int> empty_blocks_counter_host_ =
+      make_unified<int>(MemoryType::kHost);
+  unified_ptr<int> full_blocks_counter_device_ =
+      make_unified<int>(MemoryType::kDevice);
+  unified_ptr<int> full_blocks_counter_host_ =
+      make_unified<int>(MemoryType::kHost);
   device_vector<int> counter_buffer_device_{2};
   host_vector<int> counter_buffer_host_{2};
 
   device_vector<EsdfBlock*> temp_block_pointers_;
+  device_vector<EmptyEsdfBlock*> temp_empty_block_pointers_;
 };
 
 }  // namespace nvblox

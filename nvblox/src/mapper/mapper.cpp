@@ -48,9 +48,10 @@ Mapper::Mapper(float voxel_size_m,
       blocks_to_update_tracker_(projective_layer_type) {
   layers_ =
       LayerCake::create<TsdfLayer, ColorLayer, FeatureLayer, FreespaceLayer,
-                        OccupancyLayer, EsdfLayer, ColorMeshLayer,
-                        FeatureMeshLayer, EmptySpaceLayer>(
+                        OccupancyLayer, EsdfLayer, EmptyEsdfLayer,
+                        ColorMeshLayer, FeatureMeshLayer, EmptySpaceLayer>(
           voxel_size_m_, block_memory_pool_params);
+  // TODO(@bmicha) add layer streamer, serializer etc
   layer_streamers_ = LayerCakeStreamer::create<
       TsdfLayer, ColorLayer, FeatureLayer, FreespaceLayer, OccupancyLayer,
       EsdfLayer, ColorMeshLayer, FeatureMeshLayer, EmptySpaceLayer>();
@@ -87,7 +88,10 @@ void Mapper::setMapperParams(const MapperParams& params) {
   // depth preprocessing
   do_depth_preprocessing(params.do_depth_preprocessing);
   depth_preprocessing_num_dilations(params.depth_preprocessing_num_dilations);
-  do_empty_space_clearing(params.do_empty_space_clearing);
+  const bool has_esdf_two_resolutions =
+      params.esdf_integrator_params.has_esdf_two_resolutions;
+  do_empty_space_clearing(params.do_empty_space_clearing ||
+                          has_esdf_two_resolutions);
 
   // ======= ESDF INTEGRATOR =======
   esdf_integrator().esdf_slice_min_height(
@@ -106,6 +110,8 @@ void Mapper::setMapperParams(const MapperParams& params) {
       params.esdf_integrator_params.esdf_integrator_min_weight);
   esdf_integrator().max_site_distance_vox(
       params.esdf_integrator_params.esdf_integrator_max_site_distance_vox);
+  esdf_integrator().initialize_has_esdf_two_resolutions(
+      has_esdf_two_resolutions);
 
   // Decay
   exclude_last_view_from_decay(params.exclude_last_view_from_decay);
@@ -306,6 +312,12 @@ FreespaceLayer& Mapper::freespace_layer() {
 
 EmptySpaceLayer& Mapper::empty_space_layer() {
   auto ptr = layers_.getPtr<EmptySpaceLayer>();
+  CHECK_NOTNULL(ptr);
+  return *ptr;
+}
+
+EmptyEsdfLayer& Mapper::empty_esdf_layer() {
+  auto ptr = layers_.getPtr<EmptyEsdfLayer>();
   CHECK_NOTNULL(ptr);
   return *ptr;
 }
@@ -649,6 +661,7 @@ void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
 }
 
 void Mapper::clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer) {
+  // TODO(@bmicha) fetch indices of blocks marked empty once and then clear.
   // If empty space clearing not requested then no-op.
   if (!do_empty_space_clearing_) {
     return;
@@ -746,7 +759,16 @@ void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
                                         "the ESDF to 2d *or* 3d. Not both.";
   esdf_mode_ = EsdfMode::k3D;
 
-  // Get the esdf blocks that need an update
+  // For two resolution esdf, we require the empty blocks to be cleared before
+  // the esdf update.
+  if (esdf_integrator_.has_esdf_two_resolutions()) {
+    // TODO(@bmicha) Propagate whether voxels have been observed.
+
+    do_empty_space_clearing(true);
+    clearEmptySpaceBlocksInLayers(update_full_layer);
+  }
+
+  // Get the esdf blocks that need an update.
   std::vector<Index3D> blocks_to_update =
       getBlocksToUpdate(BlocksToUpdateType::kEsdf, update_full_layer);
 
@@ -755,14 +777,17 @@ void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
     // candidate esdf sites fall into freespace
     esdf_integrator_.integrateBlocks(
         layers_.get<TsdfLayer>(), layers_.get<FreespaceLayer>(),
-        blocks_to_update, layers_.getPtr<EsdfLayer>());
+        blocks_to_update, layers_.getPtr<EsdfLayer>(),
+        layers_.getPtr<EmptyEsdfLayer>(), layers_.getPtr<EmptySpaceLayer>());
   } else if (projective_layer_type_ == ProjectiveLayerType::kTsdf) {
-    esdf_integrator_.integrateBlocks(layers_.get<TsdfLayer>(), blocks_to_update,
-                                     layers_.getPtr<EsdfLayer>());
+    esdf_integrator_.integrateBlocks(
+        layers_.get<TsdfLayer>(), blocks_to_update, layers_.getPtr<EsdfLayer>(),
+        layers_.getPtr<EmptyEsdfLayer>(), layers_.getPtr<EmptySpaceLayer>());
   } else if (projective_layer_type_ == ProjectiveLayerType::kOccupancy) {
-    esdf_integrator_.integrateBlocks(layers_.get<OccupancyLayer>(),
-                                     blocks_to_update,
-                                     layers_.getPtr<EsdfLayer>());
+    esdf_integrator_.integrateBlocks(
+        layers_.get<OccupancyLayer>(), blocks_to_update,
+        layers_.getPtr<EsdfLayer>(), layers_.getPtr<EmptyEsdfLayer>(),
+        layers_.getPtr<EmptySpaceLayer>());
   }
 
   // Mark blocks as updated
@@ -774,6 +799,9 @@ void Mapper::updateEsdfSlice(UpdateFullLayer update_full_layer,
   CHECK(esdf_mode_ != EsdfMode::k3D) << "Currently, we limit computation of "
                                         "the ESDF to 2d *or* 3d. Not both.";
   esdf_mode_ = EsdfMode::k2D;
+
+  // Two resolution ESDF is not supported for 2D ESDF.
+  CHECK(!esdf_integrator_.has_esdf_two_resolutions());
 
   // Get the esdf blocks that need an update
   std::vector<Index3D> blocks_to_update =
@@ -870,14 +898,54 @@ std::vector<Index3D> Mapper::getClearedBlocks(
 std::vector<Index3D> Mapper::getBlocksToUpdate(
     BlocksToUpdateType blocks_to_update_type,
     UpdateFullLayer update_full_layer) const {
-  if (update_full_layer == UpdateFullLayer::kYes) {
+  if (update_full_layer == UpdateFullLayer::kNo) {
+    return blocks_to_update_tracker_.getBlocksToUpdate(blocks_to_update_type);
+  }
+
+  const bool is_two_res_esdf =
+      (blocks_to_update_type == BlocksToUpdateType::kEsdf) &&
+      esdf_integrator_.has_esdf_two_resolutions();
+
+  const bool is_empty_space =
+      (blocks_to_update_type == BlocksToUpdateType::kEmptySpace) &&
+      do_empty_space_clearing_;
+
+  const bool is_clearing =
+      (blocks_to_update_type == BlocksToUpdateType::kEmptySpaceClearing) &&
+      do_empty_space_clearing_;
+
+  if (!is_two_res_esdf && !is_empty_space && !is_clearing) {
+    // Standard case.
     if (hasTsdfLayer(projective_layer_type_)) {
       return layers_.get<TsdfLayer>().getAllBlockIndices();
     } else {
       return layers_.get<OccupancyLayer>().getAllBlockIndices();
     }
   } else {
-    return blocks_to_update_tracker_.getBlocksToUpdate(blocks_to_update_type);
+    // Serving the two-res ESDF or the EmptySpace layer implies blocks are being
+    // cleared and these two special layer types require the entirety of all
+    // blocks present in the cake.
+    Index3DSet union_indices;
+
+    // Get empty space blocks.
+    const EmptySpaceLayer* empty_space_ptr =
+        layers_.getConstPtr<EmptySpaceLayer>();
+    CHECK_NOTNULL(empty_space_ptr);
+    const std::vector<Index3D> empty_space_indices =
+        empty_space_ptr->getAllBlockIndices();
+
+    // Get empty space blocks to update.
+    const std::vector<Index3D> empty_space_blocks_to_update =
+        blocks_to_update_tracker_.getBlocksToUpdate(
+            BlocksToUpdateType::kEmptySpace);
+
+    // Unite the blocks.
+    union_indices.insert(empty_space_indices.begin(),
+                         empty_space_indices.end());
+    union_indices.insert(empty_space_blocks_to_update.begin(),
+                         empty_space_blocks_to_update.end());
+
+    return {union_indices.begin(), union_indices.end()};
   }
 }
 
@@ -1008,6 +1076,14 @@ bool Mapper::loadMap(const std::string& filename,
 
   // Now we're happy, let's swap the cakes.
   layers_ = std::move(new_cake);
+
+  if (esdf_integrator_.has_esdf_two_resolutions() &&
+      !do_empty_space_clearing_) {
+    LOG(WARNING) << "Activating empty space clearing to support two resolution "
+                    "ESDF.";
+    do_empty_space_clearing(true);
+  }
+
   blocks_to_update_tracker_.markBlocksAsUpdated(BlocksToUpdateType::kEsdf);
 
   // We can't serialize mesh layers yet so we have to add a new mesh layer.
@@ -1110,6 +1186,8 @@ std::shared_ptr<SerializedFreespaceLayer> Mapper::serializedFreespaceLayer() {
 std::shared_ptr<SerializedEmptySpaceLayer> Mapper::serializedEmptySpaceLayer() {
   return layer_streamers_.getSerializedLayer<EmptySpaceLayer>();
 }
+
+// TODO(@bmicha) add EmptyEsdfLayer
 
 std::shared_ptr<SerializedEsdfLayer> Mapper::serializedEsdfLayer() {
   return layer_streamers_.getSerializedLayer<EsdfLayer>();

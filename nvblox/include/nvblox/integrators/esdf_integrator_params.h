@@ -49,6 +49,10 @@ constexpr Param<float>::Description kSliceHeightAbovePlaneMParamDesc{
 constexpr Param<float>::Description kSliceHeightThicknessMParamDesc{
     "slice_height_thickness_m", 0.1,
     "The height of the slice (in meters) above the lower slice."};
+constexpr Param<bool>::Description kHasEsdfTwoResolutionsParamDesc{
+    "has_esdf_two_resolutions", false,
+    "Whether ESDF integration should happen with two resolutions. I.e. the "
+    "EmptyEsdfLayer holds empty space."};
 
 struct EsdfIntegratorParams {
   Param<float> esdf_integrator_max_distance_m{
@@ -61,6 +65,7 @@ struct EsdfIntegratorParams {
   Param<float> esdf_slice_height{kEsdfSliceHeightParamDesc};
   Param<float> slice_height_above_plane_m{kSliceHeightAbovePlaneMParamDesc};
   Param<float> slice_height_thickness_m{kSliceHeightThicknessMParamDesc};
+  Param<bool> has_esdf_two_resolutions{kHasEsdfTwoResolutionsParamDesc};
 };
 
 }  // namespace nvblox

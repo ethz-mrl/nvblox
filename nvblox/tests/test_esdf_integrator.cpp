@@ -28,6 +28,7 @@ limitations under the License.
 #include "nvblox/io/pointcloud_io.h"
 #include "nvblox/map/layer.h"
 #include "nvblox/map/voxels.h"
+#include "nvblox/mapper/mapper.h"
 #include "nvblox/primitives/scene.h"
 #include "nvblox/tests/esdf_integrator_cpu.h"
 #include "nvblox/tests/utils.h"
@@ -1121,6 +1122,200 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(Obstacle::kAxisAlignedPlane, Obstacle::kAngledPlane,
                       Obstacle::kSphereOrigin, Obstacle::kBox,
                       Obstacle::kBoxWithSphere, Obstacle::kBoxWithCube));
+
+TEST(EsdfIntegratorHelpers, EmptySpaceIndexSplitter) {
+  // Helper class to expose protected members.
+  class PublicEsdfIntegrator : public EsdfIntegrator {
+   public:
+    using EsdfIntegrator::block_indices_empty_esdf_device_;
+    using EsdfIntegrator::block_indices_full_esdf_device_;
+    using EsdfIntegrator::splitFullAndEmptyEsdfIndices;
+  };
+
+  // Helper class to expose protected members.
+  class PublicMapper : public Mapper {
+   public:
+    // Inherit constructors.
+    using Mapper::Mapper;
+
+    // Shadow esdf_integrator() accessor to return Public version.
+    PublicEsdfIntegrator& esdf_integrator() {
+      return static_cast<PublicEsdfIntegrator&>(Mapper::esdf_integrator());
+    }
+  };
+
+  constexpr static float voxel_size_m = 0.2;
+  const CudaStreamOwning cuda_stream;
+  primitives::Scene scene;
+  PublicMapper mapper{voxel_size_m, MemoryType::kUnified,
+                      ProjectiveLayerType::kTsdf};
+
+  // Generate Tsdf layer.
+  scene.generateLayerFromScene(4 * voxel_size_m, &mapper.tsdf_layer());
+
+  // Update empty space layer.
+  mapper.updateEmptySpace(UpdateFullLayer::kYes);
+
+  mapper.esdf_integrator().splitFullAndEmptyEsdfIndices(
+      &mapper.empty_space_layer(),
+      mapper.empty_space_layer().getAllBlockIndices(),
+      mapper.esdf_integrator().block_indices_full_esdf_device_,
+      mapper.esdf_integrator().block_indices_empty_esdf_device_);
+
+  int num_full_blocks =
+      mapper.esdf_integrator().block_indices_full_esdf_device_.size();
+  int num_empty_blocks =
+      mapper.esdf_integrator().block_indices_empty_esdf_device_.size();
+
+  host_vector<Index3D> block_indices_full_esdf_host;
+  host_vector<Index3D> block_indices_empty_esdf_host;
+
+  block_indices_full_esdf_host.resizeAsync(num_full_blocks, cuda_stream);
+  block_indices_empty_esdf_host.resizeAsync(num_empty_blocks, cuda_stream);
+
+  block_indices_full_esdf_host.copyFromAsync(
+      mapper.esdf_integrator().block_indices_full_esdf_device_, cuda_stream);
+  block_indices_empty_esdf_host.copyFromAsync(
+      mapper.esdf_integrator().block_indices_empty_esdf_device_, cuda_stream);
+
+  for (Index3D full_block_index : block_indices_full_esdf_host) {
+    const unified_ptr<EmptySpaceBlock> empty_space_block_ptr =
+        mapper.empty_space_layer().getBlockAtIndex(full_block_index);
+
+    EXPECT_FALSE(empty_space_block_ptr->is_empty);
+  }
+  for (Index3D empty_block_index : block_indices_empty_esdf_host) {
+    const unified_ptr<EmptySpaceBlock> empty_space_block_ptr =
+        mapper.empty_space_layer().getBlockAtIndex(empty_block_index);
+
+    EXPECT_TRUE(empty_space_block_ptr->is_empty);
+  }
+}
+
+TEST(EsdfIntegratorHelpers, TwoResolutionEsdfClearingKeepsCorrectField) {
+  constexpr float kVoxelSizeM = 0.2f;
+  constexpr float kTsdfTruncationDistanceM = 4.0f * kVoxelSizeM;
+  constexpr float kMaxEsdfDistanceM = 4.0f;
+  constexpr float kAcceptableErrorM = 0.0f;
+
+  // Build a scene where an interior obstacle is removed.
+  primitives::Scene scene_with_obstacle;
+  scene_with_obstacle.aabb() = AxisAlignedBoundingBox(
+      Vector3f(-5.5f, -5.5f, -0.5f), Vector3f(5.5f, 5.5f, 5.5f));
+  scene_with_obstacle.addPlaneBoundaries(-5.0f, 5.0f, -5.0f, 5.0f);
+  scene_with_obstacle.addGroundLevel(0.0f);
+  scene_with_obstacle.addCeiling(5.0f);
+  scene_with_obstacle.addPrimitive(
+      std::make_unique<primitives::Sphere>(Vector3f(0.0f, 0.0f, 2.0f), 1.25f));
+
+  primitives::Scene scene_without_obstacle;
+  scene_without_obstacle.aabb() = AxisAlignedBoundingBox(
+      Vector3f(-5.5f, -5.5f, -0.5f), Vector3f(5.5f, 5.5f, 5.5f));
+  scene_without_obstacle.addPlaneBoundaries(-5.0f, 5.0f, -5.0f, 5.0f);
+  scene_without_obstacle.addGroundLevel(0.0f);
+  scene_without_obstacle.addCeiling(5.0f);
+
+  // Reference mapper: regular ESDF.
+  Mapper reference_mapper(kVoxelSizeM, MemoryType::kUnified,
+                          ProjectiveLayerType::kTsdf);
+  MapperParams reference_params;
+  reference_params.do_empty_space_clearing = false;
+  reference_params.esdf_integrator_params.has_esdf_two_resolutions = false;
+  reference_mapper.setMapperParams(reference_params);
+  reference_mapper.esdf_integrator().max_esdf_distance_m(kMaxEsdfDistanceM);
+
+  // Two-res mapper: two-resolution ESDF + empty-space clearing.
+  Mapper two_res_mapper(kVoxelSizeM, MemoryType::kUnified,
+                        ProjectiveLayerType::kTsdf);
+  MapperParams two_res_params;
+  two_res_params.do_empty_space_clearing = true;
+  two_res_params.esdf_integrator_params.has_esdf_two_resolutions = true;
+  two_res_mapper.setMapperParams(two_res_params);
+  two_res_mapper.esdf_integrator().max_esdf_distance_m(kMaxEsdfDistanceM);
+
+  // Two-step update to exercise obstacle removal.
+  std::vector<const primitives::Scene*> sequence = {&scene_with_obstacle,
+                                                    &scene_without_obstacle};
+  for (const primitives::Scene* scene_ptr : sequence) {
+    scene_ptr->generateLayerFromScene(kTsdfTruncationDistanceM,
+                                      &reference_mapper.tsdf_layer());
+    scene_ptr->generateLayerFromScene(kTsdfTruncationDistanceM,
+                                      &two_res_mapper.tsdf_layer());
+
+    // generateLayerFromScene does not add blocks to tracker.
+    reference_mapper.markBlocksForUpdate(
+        reference_mapper.tsdf_layer().getAllBlockIndices());
+    two_res_mapper.markBlocksForUpdate(
+        two_res_mapper.tsdf_layer().getAllBlockIndices());
+
+    // Reference path.
+    reference_mapper.updateEsdf();
+
+    // Two-resolution path.
+    two_res_mapper.updateEmptySpace();
+    two_res_mapper.updateEsdf();
+  }
+
+  // Identify empty blocks from the final map state.
+  const std::vector<Index3D> empty_block_indices =
+      two_res_mapper.empty_space_integrator().getIndicesOfAllBlocksMarkedEmpty(
+          two_res_mapper.empty_space_layer().getAllBlockIndices(),
+          &two_res_mapper.empty_space_layer());
+  EXPECT_GT(empty_block_indices.size(), 0u);
+
+  // Empty blocks should be cleared from normal ESDF and represented in empty
+  // ESDF.
+  for (const Index3D& idx : empty_block_indices) {
+    EXPECT_FALSE(two_res_mapper.esdf_layer().isBlockAllocated(idx));
+    EXPECT_TRUE(two_res_mapper.empty_esdf_layer().isBlockAllocated(idx));
+  }
+
+  // Compare ESDF values against the reference on the surviving full blocks.
+  int total_num_voxels_observed = 0;
+  int num_voxels_over_threshold = 0;
+  for (const Index3D& block_index :
+       two_res_mapper.esdf_layer().getAllBlockIndices()) {
+    const auto block_two_res =
+        two_res_mapper.esdf_layer().getBlockAtIndex(block_index);
+    const auto block_reference =
+        reference_mapper.esdf_layer().getBlockAtIndex(block_index);
+    ASSERT_FALSE(!block_two_res);
+    ASSERT_FALSE(!block_reference);
+    for (int x = 0; x < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; x++) {
+      for (int y = 0; y < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; y++) {
+        for (int z = 0; z < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; z++) {
+          const EsdfVoxel& voxel_two_res = block_two_res->voxels[x][y][z];
+          const EsdfVoxel& voxel_reference = block_reference->voxels[x][y][z];
+          if (!voxel_two_res.observed && !voxel_reference.observed) {
+            continue;
+          }
+
+          float distance_two_res =
+              two_res_mapper.esdf_layer().voxel_size() *
+              std::sqrt(voxel_two_res.squared_distance_vox);
+          if (voxel_two_res.is_inside) {
+            distance_two_res = -distance_two_res;
+          }
+
+          float distance_reference =
+              reference_mapper.esdf_layer().voxel_size() *
+              std::sqrt(voxel_reference.squared_distance_vox);
+          if (voxel_reference.is_inside) {
+            distance_reference = -distance_reference;
+          }
+
+          ++total_num_voxels_observed;
+          if (std::abs(distance_two_res - distance_reference) >
+              kAcceptableErrorM) {
+            ++num_voxels_over_threshold;
+          }
+        }
+      }
+    }
+  }
+  ASSERT_GT(total_num_voxels_observed, 0);
+  EXPECT_EQ(num_voxels_over_threshold, 0);
+}
 
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);

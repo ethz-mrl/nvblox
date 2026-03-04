@@ -52,7 +52,9 @@ const Param<LayerTypeBitMask>::Description
             LayerType::kColor | LayerType::kColorMesh |
             LayerType::kFeatureMesh | LayerType::kOccupancy |
             LayerType::kFeature,
-        "Layer types that should be cleared by empty space clearing logic."};
+        "Layer types that should be cleared by empty space clearing logic. "
+        "Note that clearing EmptyEsdf or EmptySpace will lead to undefined "
+        "behavior."};
 
 constexpr Param<
     EmptynessClassifierType>::Description kEmptynessClassifierTypeParamDesc{

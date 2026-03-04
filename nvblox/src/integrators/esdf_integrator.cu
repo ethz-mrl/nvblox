@@ -29,6 +29,7 @@ limitations under the License.
 #include "nvblox/gpu_hash/internal/cuda/gpu_indexing.cuh"
 #include "nvblox/gpu_hash/internal/cuda/gpu_set.cuh"
 #include "nvblox/integrators/internal/cuda/esdf_integrator_slicing.cuh"
+#include "nvblox/map/internal/impl/empty_esdf_boundary_indexing.h"
 #include "nvblox/utils/timing.h"
 
 namespace nvblox {
@@ -37,7 +38,9 @@ EsdfIntegrator::EsdfIntegrator()
     : EsdfIntegrator(std::make_shared<CudaStreamOwning>()) {}
 
 EsdfIntegrator::EsdfIntegrator(std::shared_ptr<CudaStream> cuda_stream)
-    : cuda_stream_(cuda_stream) {}
+    : cuda_stream_(cuda_stream) {
+  initializeBoundaryVoxelLutOnGPU();
+}
 
 float EsdfIntegrator::max_esdf_distance_m() const {
   return max_esdf_distance_m_;
@@ -74,6 +77,19 @@ void EsdfIntegrator::occupied_threshold(float occupied_threshold) {
   occupied_threshold_log_odds_ = logOddsFromProbability(occupied_threshold);
 }
 
+void EsdfIntegrator::initialize_has_esdf_two_resolutions(
+    bool has_esdf_two_resolutions) {
+  if (!has_esdf_two_resolutions_initialized_) {
+    has_esdf_two_resolutions_ = has_esdf_two_resolutions;
+    has_esdf_two_resolutions_initialized_ = true;
+    return;
+  }
+
+  CHECK_EQ(has_esdf_two_resolutions_, has_esdf_two_resolutions)
+      << "has_esdf_two_resolutions is initialization-only and cannot be "
+         "changed at runtime.";
+}
+
 parameters::ParameterTreeNode EsdfIntegrator::getParameterTree(
     const std::string& name_remap) const {
   using parameters::ParameterTreeNode;
@@ -82,19 +98,21 @@ parameters::ParameterTreeNode EsdfIntegrator::getParameterTree(
   return ParameterTreeNode(
       name,
       {
-          ParameterTreeNode("max_esdf_distance_m:", max_esdf_distance_m_),
-          ParameterTreeNode("max_tsdf_site_distance_vox:",
+          ParameterTreeNode("max_esdf_distance_m", max_esdf_distance_m_),
+          ParameterTreeNode("max_tsdf_site_distance_vox",
                             max_tsdf_site_distance_vox_),
-          ParameterTreeNode("tsdf_min_weight:", tsdf_min_weight_),
-          ParameterTreeNode("occupied_threshold_log_odds:",
+          ParameterTreeNode("tsdf_min_weight", tsdf_min_weight_),
+          ParameterTreeNode("occupied_threshold_log_odds",
                             occupied_threshold_log_odds_),
-          ParameterTreeNode("esdf_slice_min_height:", esdf_slice_min_height_),
-          ParameterTreeNode("esdf_slice_max_height:", esdf_slice_max_height_),
-          ParameterTreeNode("esdf_slice_height:", esdf_slice_height_),
-          ParameterTreeNode("slice_height_above_plane_m:",
+          ParameterTreeNode("esdf_slice_min_height", esdf_slice_min_height_),
+          ParameterTreeNode("esdf_slice_max_height", esdf_slice_max_height_),
+          ParameterTreeNode("esdf_slice_height", esdf_slice_height_),
+          ParameterTreeNode("slice_height_above_plane_m",
                             slice_height_above_plane_m_),
-          ParameterTreeNode("slice_height_thickness_m:",
+          ParameterTreeNode("slice_height_thickness_m",
                             slice_height_thickness_m_),
+          ParameterTreeNode("has_esdf_two_resolutions",
+                            has_esdf_two_resolutions_),
       });
 }
 
@@ -220,16 +238,44 @@ Plane checkForVerticalPlane(const Plane& ground_plane) {
 template <typename LayerType>
 void EsdfIntegrator::integrateBlocksTemplate(
     const LayerType& layer, const std::vector<Index3D>& block_indices,
-    EsdfLayer* esdf_layer, const FreespaceLayer* freespace_layer_ptr) {
+    EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer,
+    const EmptySpaceLayer* empty_space_layer,
+    const FreespaceLayer* freespace_layer_ptr) {
+  // ASSUMPTION(@bmicha) If has_esdf_two_resolutions_ then the empty space layer
+  // was updated just prior to this call.
   timing::Timer esdf_timer("esdf/integrate");
 
   if (block_indices.empty()) {
     return;
   }
 
-  timing::Timer allocate_timer("esdf/integrate/allocate");
+  if (has_esdf_two_resolutions_) {
+    CHECK_NOTNULL(empty_esdf_layer);
+    CHECK_NOTNULL(empty_space_layer);
+  }
+
   // First, allocate all the destination blocks.
-  allocateBlocksOnCPU(block_indices, esdf_layer);
+  timing::Timer allocate_timer("esdf/integrate/allocate");
+  timing::Timer split_timer("esdf/integrate/split_block_indices");
+  if (has_esdf_two_resolutions_) {
+    splitFullAndEmptyEsdfIndices(empty_space_layer, block_indices,
+                                 block_indices_full_esdf_device_,
+                                 block_indices_empty_esdf_device_);
+
+    block_indices_full_esdf_host_.copyFromAsync(block_indices_full_esdf_device_,
+                                                *cuda_stream_);
+    block_indices_empty_esdf_host_.copyFromAsync(
+        block_indices_empty_esdf_device_, *cuda_stream_);
+  } else {
+    block_indices_empty_esdf_host_.resizeAsync(0, *cuda_stream_);
+    block_indices_full_esdf_host_.copyFromAsync(block_indices, *cuda_stream_);
+  }
+  split_timer.Stop();
+
+  allocateBlocksOnCPU(block_indices_full_esdf_host_, esdf_layer);
+  if (empty_esdf_layer != nullptr) {
+    allocateBlocksOnCPU(block_indices_empty_esdf_host_, empty_esdf_layer);
+  }
   allocate_timer.Stop();
 
   timing::Timer mark_timer("esdf/integrate/mark_sites");
@@ -244,16 +290,22 @@ void EsdfIntegrator::integrateBlocksTemplate(
     std::vector<Index3D> to_clear_indices =
         to_clear_indices_device_.toVectorAsync(*cuda_stream_);
     cuda_stream_->synchronize();
-    clearAllInvalid(to_clear_indices, esdf_layer,
-                    &cleared_block_indices_device_);
+    // Empty esdf blocks also need to be cleared.
+    if (block_indices_empty_esdf_host_.size() != 0) {
+      to_clear_indices.insert(to_clear_indices.end(),
+                              block_indices_empty_esdf_host_.begin(),
+                              block_indices_empty_esdf_host_.end());
+    }
+    clearAllInvalid(to_clear_indices, esdf_layer, empty_esdf_layer,
+                    empty_space_layer, &cleared_block_indices_device_);
     cuda_stream_->synchronize();
   }
 
   timing::Timer compute_timer("esdf/integrate/compute");
   // Parallel block banding on GPU.
-  computeEsdf(updated_indices_device_, esdf_layer);
+  computeEsdf(updated_indices_device_, esdf_layer, empty_esdf_layer);
   if (!cleared_block_indices_device_.empty()) {
-    computeEsdf(cleared_block_indices_device_, esdf_layer);
+    computeEsdf(cleared_block_indices_device_, esdf_layer, empty_esdf_layer);
   }
   cuda_stream_->synchronize();
   compute_timer.Stop();
@@ -261,23 +313,32 @@ void EsdfIntegrator::integrateBlocksTemplate(
 
 void EsdfIntegrator::integrateBlocks(const TsdfLayer& tsdf_layer,
                                      const std::vector<Index3D>& block_indices,
-                                     EsdfLayer* esdf_layer) {
-  integrateBlocksTemplate<TsdfLayer>(tsdf_layer, block_indices, esdf_layer);
+                                     EsdfLayer* esdf_layer,
+                                     EmptyEsdfLayer* empty_esdf_layer,
+                                     const EmptySpaceLayer* empty_space_layer) {
+  integrateBlocksTemplate<TsdfLayer>(tsdf_layer, block_indices, esdf_layer,
+                                     empty_esdf_layer, empty_space_layer);
 }
 
 void EsdfIntegrator::integrateBlocks(const TsdfLayer& tsdf_layer,
                                      const FreespaceLayer& freespace_layer,
                                      const std::vector<Index3D>& block_indices,
-                                     EsdfLayer* esdf_layer) {
+                                     EsdfLayer* esdf_layer,
+                                     EmptyEsdfLayer* empty_esdf_layer,
+                                     const EmptySpaceLayer* empty_space_layer) {
   integrateBlocksTemplate<TsdfLayer>(tsdf_layer, block_indices, esdf_layer,
+                                     empty_esdf_layer, empty_space_layer,
                                      &freespace_layer);
 }
 
 void EsdfIntegrator::integrateBlocks(const OccupancyLayer& occupancy_layer,
                                      const std::vector<Index3D>& block_indices,
-                                     EsdfLayer* esdf_layer) {
+                                     EsdfLayer* esdf_layer,
+                                     EmptyEsdfLayer* empty_esdf_layer,
+                                     const EmptySpaceLayer* empty_space_layer) {
   integrateBlocksTemplate<OccupancyLayer>(occupancy_layer, block_indices,
-                                          esdf_layer);
+                                          esdf_layer, empty_esdf_layer,
+                                          empty_space_layer);
 }
 
 template <typename LayerType, typename SliceDescriptionType>
@@ -291,6 +352,11 @@ void EsdfIntegrator::integrateSliceTemplate(
     return;
   }
 
+  if (has_esdf_two_resolutions_) {
+    LOG(WARNING) << "Two resolution ESDF is not supported for 2D ESDF.";
+    has_esdf_two_resolutions_ = false;
+  }
+
   timing::Timer mark_timer("esdf/integrate_slice/mark_sites");
   // Then, mark all the sites on GPU.
   // This finds all the blocks that are eligible to be parents.
@@ -302,15 +368,16 @@ void EsdfIntegrator::integrateSliceTemplate(
   if (!to_clear_indices_device_.empty()) {
     timing::Timer compute_timer("esdf/integrate/clear");
     clearAllInvalid(to_clear_indices_device_.toVectorAsync(*cuda_stream_),
-                    esdf_layer, &cleared_block_indices_device_);
+                    esdf_layer, nullptr, nullptr,
+                    &cleared_block_indices_device_);
     cuda_stream_->synchronize();
   }
 
   timing::Timer compute_timer("esdf/integrate_slice/compute");
   // Parallel block banding on GPU.
-  computeEsdf(updated_indices_device_, esdf_layer);
+  computeEsdf(updated_indices_device_, esdf_layer, nullptr);
   if (!cleared_block_indices_device_.empty()) {
-    computeEsdf(cleared_block_indices_device_, esdf_layer);
+    computeEsdf(cleared_block_indices_device_, esdf_layer, nullptr);
   }
   compute_timer.Stop();
 }
@@ -388,13 +455,81 @@ void EsdfIntegrator::integrateSlice(const OccupancyLayer& occupancy_layer,
                                          slice_description, esdf_layer);
 }
 
-void EsdfIntegrator::allocateBlocksOnCPU(
-    const std::vector<Index3D>& block_indices, EsdfLayer* esdf_layer) {
-  // We want to allocate all ESDF layer blocks and copy over the sites.
-  for (const Index3D& block_index : block_indices) {
-    esdf_layer->allocateBlockAtIndexAsync(block_index, *cuda_stream_);
+__global__ void splitFullAndEmptyEsdfIndicesKernel(
+    int num_block_indices, const Index3D* block_indices_to_check,
+    Index3D* block_indices_full, int* block_indices_full_counter,
+    Index3D* block_indices_empty, int* block_indices_empty_counter,
+    Index3DDeviceHashMapType<EmptySpaceBlock> empty_space_hash_map) {
+  const int idx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (idx >= num_block_indices) {
+    return;
+  }
+
+  // Get corresponding empty space block.
+  Index3D block_index = block_indices_to_check[idx];
+  EmptySpaceBlock* empty_space_block_ptr = nullptr;
+
+  auto it = empty_space_hash_map.find(block_index);
+  if (it != empty_space_hash_map.end()) {
+    empty_space_block_ptr = it->second;
+  }
+
+  NVBLOX_CHECK(empty_space_block_ptr != nullptr,
+               "All blocks have to be present in the empty space layer.");
+
+  // Check if block index is marked empty and add to corresponding vector.
+  if (empty_space_block_ptr->is_empty) {
+    block_indices_empty[atomicAdd(block_indices_empty_counter, 1)] =
+        block_index;
+  } else {
+    block_indices_full[atomicAdd(block_indices_full_counter, 1)] = block_index;
   }
 }
+
+void EsdfIntegrator::splitFullAndEmptyEsdfIndices(
+    const EmptySpaceLayer* empty_space_layer,
+    const std::vector<Index3D>& block_indices,
+    device_vector<Index3D>& block_indices_full,
+    device_vector<Index3D>& block_indices_empty) {
+  const int num_blocks = block_indices.size();
+
+  if (num_blocks == 0) {
+    return;
+  }
+
+  block_indices_full.reserveAsync(num_blocks, *cuda_stream_);
+  block_indices_empty.reserveAsync(num_blocks, *cuda_stream_);
+
+  full_blocks_counter_device_.setZeroAsync(*cuda_stream_);
+  empty_blocks_counter_device_.setZeroAsync(*cuda_stream_);
+
+  GPULayerView<EmptySpaceBlock>& empty_space_gpu_view =
+      empty_space_layer->getGpuLayerView(*cuda_stream_);
+
+  // Launch kernel.
+  constexpr int kNumThreads = 512;
+  const int num_thread_blocks = (num_blocks + kNumThreads - 1) / kNumThreads;
+
+  splitFullAndEmptyEsdfIndicesKernel<<<num_thread_blocks, kNumThreads, 0,
+                                       *cuda_stream_>>>(
+      num_blocks, block_indices.data(), block_indices_full.data(),
+      full_blocks_counter_device_.get(), block_indices_empty.data(),
+      empty_blocks_counter_device_.get(), empty_space_gpu_view.getHash().impl_);
+  checkCudaErrors(cudaPeekAtLastError());
+
+  // We need number of full and empty blocks...
+  full_blocks_counter_device_.copyToAsync(full_blocks_counter_host_,
+                                          *cuda_stream_);
+  empty_blocks_counter_device_.copyToAsync(empty_blocks_counter_host_,
+                                           *cuda_stream_);
+  cuda_stream_->synchronize();
+
+  // ...to resize the max length device vectors to their length with valid data.
+  block_indices_full.resizeAsync(*full_blocks_counter_host_, *cuda_stream_);
+  block_indices_empty.resizeAsync(*empty_blocks_counter_host_, *cuda_stream_);
+  cuda_stream_->synchronize();
+  checkCudaErrors(cudaPeekAtLastError());
+};
 
 // The function looks at the current value of the input TSDF/Occupancy voxel
 // and the currect value of the pass ESDF voxel and updates it.
@@ -600,36 +735,92 @@ __device__ void sweepSingleBand(Index3D voxel_index, int sweep_axis,
 }
 
 __device__ bool updateSingleNeighbor(const EsdfBlock* esdf_block,
+                                     const EmptyEsdfBlock* empty_esdf_block,
                                      const Index3D& voxel_index,
                                      const Index3D& neighbor_voxel_index,
                                      const int axis, const int direction,
                                      const float max_squared_esdf_distance_vox,
-                                     EsdfBlock* neighbor_block) {
-  const EsdfVoxel* esdf_voxel =
-      &esdf_block->voxels[voxel_index.x()][voxel_index.y()][voxel_index.z()];
-  EsdfVoxel* neighbor_voxel =
-      &neighbor_block
-           ->voxels[neighbor_voxel_index.x()][neighbor_voxel_index.y()]
-                   [neighbor_voxel_index.z()];
-  if (!esdf_voxel->observed || !neighbor_voxel->observed ||
-      neighbor_voxel->is_site ||
-      esdf_voxel->squared_distance_vox >= max_squared_esdf_distance_vox) {
+                                     EsdfBlock* neighbor_block,
+                                     EmptyEsdfBlock* empty_neighbor_block) {
+  EsdfVoxel* neighbor_voxel = nullptr;
+  Index3D potential_direction;  // From neighbor to parent of esdf_block.
+  int neighbor_distance;
+  int flat_boundary_id = getFlatIndexFromBoundaryVoxelIndex(voxel_index);
+  int neighbor_flat_boundary_id =
+      getFlatIndexFromBoundaryVoxelIndex(neighbor_voxel_index);
+
+  // Get potential direction.
+  if (esdf_block != nullptr) {
+    const EsdfVoxel* esdf_voxel =
+        &esdf_block->voxels[voxel_index.x()][voxel_index.y()][voxel_index.z()];
+
+    // Early return.
+    if (!esdf_voxel->observed ||
+        esdf_voxel->squared_distance_vox >= max_squared_esdf_distance_vox) {
+      return false;
+    }
+
+    potential_direction = esdf_voxel->parent_direction;
+    potential_direction(axis) -= direction;
+  } else if (empty_esdf_block != nullptr) {
+    potential_direction =
+        empty_esdf_block->boundary_parent_directions[flat_boundary_id];
+    // Zero direction in empty ESDF encodes "unset / invalid parent".
+    if (potential_direction == Index3D::Zero()) {
+      return false;
+    }
+    potential_direction(axis) -= direction;
+  } else {
+    // This should not happen.
     return false;
   }
-  // Determine if we can update this.
-  Eigen::Vector3i potential_direction = esdf_voxel->parent_direction;
-  potential_direction(axis) -= direction;
-  float potential_distance = potential_direction.squaredNorm();
-  // TODO: might be some concurrency issues here, have to be a bit careful
-  // on the corners/edges.
-  if (neighbor_voxel->squared_distance_vox > potential_distance) {
-    neighbor_voxel->parent_direction = potential_direction;
-    // Cache at global level (cache in L2 and below, not L1). We do not expect
-    // L1 cache level reuse.
-    __stcg(&neighbor_voxel->squared_distance_vox, potential_distance);
-    return true;
+
+  // Get current neighbor distance.
+  if (neighbor_block != nullptr) {
+    neighbor_voxel =
+        &neighbor_block
+             ->voxels[neighbor_voxel_index.x()][neighbor_voxel_index.y()]
+                     [neighbor_voxel_index.z()];
+    if (!neighbor_voxel->observed || neighbor_voxel->is_site) {
+      return false;
+    }
+    neighbor_distance = neighbor_voxel->squared_distance_vox;
+  } else if (empty_neighbor_block != nullptr) {
+    const Index3D neighbor_parent_direction =
+        empty_neighbor_block
+            ->boundary_parent_directions[neighbor_flat_boundary_id];
+    // Treat unset parent as "infinite distance" so valid neighbors can
+    // propagate into this boundary voxel.
+    neighbor_distance = (neighbor_parent_direction == Index3D::Zero())
+                            ? max_squared_esdf_distance_vox + 1
+                            : neighbor_parent_direction.squaredNorm();
+  } else {
+    // This should not happen.
+    return false;
   }
-  return false;
+
+  int potential_distance = potential_direction.squaredNorm();
+  // Neighbors parent is closer or we are above threshold.
+  if (potential_distance >= neighbor_distance ||
+      potential_distance > max_squared_esdf_distance_vox) {
+    return false;
+  }
+
+  // Now update parent direction of neighbor.
+  if (neighbor_voxel != nullptr) {
+    neighbor_voxel->parent_direction = potential_direction;
+    // Cache in L2 and below, not L1. We do not expect L1 cache level reuse.
+    __stcg(&neighbor_voxel->squared_distance_vox, potential_distance);
+  } else if (empty_neighbor_block != nullptr) {
+    empty_neighbor_block
+        ->boundary_parent_directions[neighbor_flat_boundary_id] =
+        potential_direction;
+  } else {
+    // This should not happen.
+    return false;
+  }
+
+  return true;
 }
 
 __device__ bool clearSingleNeighbor(const EsdfBlock* esdf_block,
@@ -1097,10 +1288,11 @@ __forceinline__ __host__ __device__ void getDirectionAndVoxelIndicesFromThread(
 // lookup (block_hash.find(index)) and stores the resulting block
 // pointer in an array.
 // This kernel also initializes counters to 0.
+template <typename BlockType>
 __global__ void getBlockPtr(
     const int kNumNeighbors, const int num_blocks,
-    const Index3DDeviceHashMapType<EsdfBlock> block_hash,
-    const Index3D* block_indices, EsdfBlock** block_ptr, int* counters) {
+    const Index3DDeviceHashMapType<BlockType> block_hash,
+    const Index3D* block_indices, BlockType** block_ptr, int* counters) {
   int flat_tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (flat_tid >= num_blocks * (1 + kNumNeighbors)) {
     return;
@@ -1133,9 +1325,10 @@ __global__ void getBlockPtr(
 // Thread size MUST be 8x8x6, 8x8 being the side of the cube, and 6 being the
 // number of neighbors considered per block. Block size can be whatever.
 __global__ void updateNeighborBandsKernel(
-    int i, int num_blocks, Index3DDeviceHashMapType<EsdfBlock> block_hash,
-    float max_squared_esdf_distance_vox, Index3D* block_indices,
-    EsdfBlock** block_pointers, Index3D* output_vector, int* updated_size) {
+    int i, int num_blocks, float max_squared_esdf_distance_vox,
+    Index3D* block_indices, EsdfBlock** esdf_block_pointers,
+    EmptyEsdfBlock** empty_esdf_block_pointers, int num_empty_block_pointers,
+    Index3D* output_vector, int* updated_size) {
   // Luckily the direction is the same for all processed blocks by this thread.
 
   __shared__ bool block_updated;
@@ -1144,12 +1337,23 @@ __global__ void updateNeighborBandsKernel(
   for (int block_idx = blockIdx.x; block_idx < num_blocks;
        block_idx += gridDim.x) {
     // Get the current block for this... block.
-    EsdfBlock* block_ptr = block_pointers[block_idx];
+    EsdfBlock* block_ptr = esdf_block_pointers[block_idx];
+    EmptyEsdfBlock* empty_block_ptr = nullptr;
+    if (block_idx < num_empty_block_pointers) {
+      empty_block_ptr = empty_esdf_block_pointers[block_idx];
+    }
     // Get the neighbor block for this thread.
     EsdfBlock* neighbor_block_ptr =
-        block_pointers[block_idx + (i + 1) * num_blocks];
+        esdf_block_pointers[block_idx + (i + 1) * num_blocks];
+    EmptyEsdfBlock* empty_neighbor_block_ptr = nullptr;
+    if ((block_idx + (i + 1) * num_blocks) < num_empty_block_pointers) {
+      empty_neighbor_block_ptr =
+          empty_esdf_block_pointers[block_idx + (i + 1) * num_blocks];
+    }
     // This block doesn't exist. Who knows why. This shouldn't happen.
-    if (block_ptr == nullptr || neighbor_block_ptr == nullptr) {
+    if ((block_ptr == nullptr && empty_block_ptr == nullptr) ||
+        (neighbor_block_ptr == nullptr &&
+         empty_neighbor_block_ptr == nullptr)) {
       continue;
     }
 
@@ -1167,8 +1371,9 @@ __global__ void updateNeighborBandsKernel(
                                           &axis, &direction);
 
     bool updated = updateSingleNeighbor(
-        block_ptr, voxel_index, neighbor_voxel_index, axis, direction,
-        max_squared_esdf_distance_vox, neighbor_block_ptr);
+        block_ptr, empty_block_ptr, voxel_index, neighbor_voxel_index, axis,
+        direction, max_squared_esdf_distance_vox, neighbor_block_ptr,
+        empty_neighbor_block_ptr);
     // No bother with atomics.
     if (updated) {
       block_updated = updated;
@@ -1322,7 +1527,7 @@ void EsdfIntegrator::sortAndTakeUniqueIndices(
 
 void EsdfIntegrator::updateNeighborBands(
     device_vector<Index3D>* block_indices, EsdfLayer* esdf_layer,
-    float max_squared_esdf_distance_vox,
+    EmptyEsdfLayer* empty_esdf_layer, float max_squared_esdf_distance_vox,
     device_vector<Index3D>* updated_block_indices) {
   if (block_indices->empty()) {
     return;
@@ -1337,10 +1542,11 @@ void EsdfIntegrator::updateNeighborBands(
   updated_block_indices->resizeAsync(
       block_indices->size() * kUpdatedBlockMultiple, *cuda_stream_);
 
-  timing::Timer gpu_view("esdf/integrate/compute/neighbor_bands/gpu_view");
-  GPULayerView<EsdfBlock>& gpu_layer_view =
+  timing::Timer esdf_gpu_view(
+      "esdf/integrate/compute/neighbor_bands/esdf_gpu_view");
+  GPULayerView<EsdfBlock>& esdf_gpu_layer_view =
       esdf_layer->getGpuLayerView(*cuda_stream_);
-  gpu_view.Stop();
+  esdf_gpu_view.Stop();
 
   // Call the kernel.
   int dim_block = block_indices->size();
@@ -1362,20 +1568,32 @@ void EsdfIntegrator::updateNeighborBands(
   temp_block_pointers_.resizeAsync(temp_storage_size, *cuda_stream_);
   getBlockPtr<<<num_ctas, 64, 0, *cuda_stream_>>>(
       kNumNeighbors, block_indices->size(),  // NOLINT
-      gpu_layer_view.getHash().impl_,        // NOLINT
+      esdf_gpu_layer_view.getHash().impl_,   // NOLINT
       block_indices->data(),                 // NOLINT
       temp_block_pointers_.data(),
       counter_buffer_device_.data());  // to initalize it; merged operation
 
+  if (has_esdf_two_resolutions_ && empty_esdf_layer != nullptr) {
+    GPULayerView<EmptyEsdfBlock>& empty_esdf_gpu_layer_view =
+        empty_esdf_layer->getGpuLayerView(*cuda_stream_);
+
+    temp_empty_block_pointers_.resizeAsync(temp_storage_size, *cuda_stream_);
+    getBlockPtr<<<num_ctas, 64, 0, *cuda_stream_>>>(
+        kNumNeighbors, block_indices->size(),       // NOLINT
+        empty_esdf_gpu_layer_view.getHash().impl_,  // NOLINT
+        block_indices->data(),                      // NOLINT
+        temp_empty_block_pointers_.data(),
+        counter_buffer_device_.data());  // to initalize it; merged operation
+  } else {
+    temp_empty_block_pointers_.resizeAsync(0, *cuda_stream_);
+  }
+
   for (int i = 0; i < kNumNeighbors; i++) {
     updateNeighborBandsKernel<<<dim_block, dim_threads, 0, *cuda_stream_>>>(
-        i, block_indices->size(),        // NOLINT
-        gpu_layer_view.getHash().impl_,  // NOLINT
-        max_squared_esdf_distance_vox,   // NOLINT
-        block_indices->data(),           // NOLINT
-        temp_block_pointers_.data(),
-        updated_block_indices->data(),  // NOLINT
-        counter_buffer_device_.data());
+        i, block_indices->size(), max_squared_esdf_distance_vox,
+        block_indices->data(), temp_block_pointers_.data(),
+        temp_empty_block_pointers_.data(), temp_empty_block_pointers_.size(),
+        updated_block_indices->data(), counter_buffer_device_.data());
   }
   checkCudaErrors(cudaPeekAtLastError());
   // Avoid GPU-Host communication for updated_block_indices.
@@ -1388,50 +1606,124 @@ void EsdfIntegrator::updateNeighborBands(
 /// Thread size MUST be 8x8xN (where N is a number of blocks up to ???), block
 /// size can be anything.
 __global__ void sweepBlockBandKernel(
-    int num_blocks, Index3DDeviceHashMapType<EsdfBlock> block_hash,
+    int num_blocks, Index3DDeviceHashMapType<EsdfBlock> esdf_block_hash,
+    Index3DDeviceHashMapType<EmptyEsdfBlock> empty_esdf_block_hash,
     float max_squared_esdf_distance_vox, Index3D* block_indices) {
   // We go one axis at a time, syncing threads in between.
   dim3 thread_index = threadIdx;
   thread_index.z = 0;
 
   __shared__ EsdfBlock* esdf_block;
+  __shared__ EmptyEsdfBlock* empty_esdf_block;
 
   for (int block_idx = blockIdx.x * blockDim.z + threadIdx.z;
        block_idx < num_blocks; block_idx += gridDim.x * blockDim.z) {
     // For simplicity we have to have the same number of blocks in the CUDA
     // kernel call as we have actual blocks.
+    // First thread tries to fetch esdf block...
     if (threadIdx.x == 0 && threadIdx.y == 0) {
       esdf_block = nullptr;
-      auto it = block_hash.find(block_indices[block_idx]);
-      if (it != block_hash.end()) {
+      auto it = esdf_block_hash.find(block_indices[block_idx]);
+      if (it != esdf_block_hash.end()) {
         esdf_block = it->second;
       }
     }
+    // ... second thread tries to fetch empty esdf block.
+    if (threadIdx.x == 1 && threadIdx.y == 0) {
+      empty_esdf_block = nullptr;
+
+      if (!empty_esdf_block_hash.empty()) {
+        auto it = empty_esdf_block_hash.find(block_indices[block_idx]);
+        if (it != empty_esdf_block_hash.end()) {
+          empty_esdf_block = it->second;
+        }
+      }
+    }
     __syncthreads();
+
     // This block doesn't exist. Who knows why. This shouldn't happen.
-    if (esdf_block == nullptr) {
+    if (esdf_block == nullptr && empty_esdf_block == nullptr) {
       continue;
     }
-    Index3D voxel_index(0, thread_index.x, thread_index.y);
 
-    // X axis done.
-    sweepSingleBand(voxel_index, 0, max_squared_esdf_distance_vox, esdf_block);
-    __syncthreads();
+    // Handle normal / full esdf block.
+    if (esdf_block != nullptr) {
+      Index3D voxel_index(0, thread_index.x, thread_index.y);
 
-    // Y axis done.
-    voxel_index << thread_index.x, 0, thread_index.y;
-    sweepSingleBand(voxel_index, 1, max_squared_esdf_distance_vox, esdf_block);
-    __syncthreads();
+      // X axis done.
+      sweepSingleBand(voxel_index, 0, max_squared_esdf_distance_vox,
+                      esdf_block);
+      __syncthreads();
 
-    // Z axis done.
-    voxel_index << thread_index.x, thread_index.y, 0;
-    sweepSingleBand(voxel_index, 2, max_squared_esdf_distance_vox, esdf_block);
-    __syncthreads();
+      // Y axis done.
+      voxel_index << thread_index.x, 0, thread_index.y;
+      sweepSingleBand(voxel_index, 1, max_squared_esdf_distance_vox,
+                      esdf_block);
+      __syncthreads();
+
+      // Z axis done.
+      voxel_index << thread_index.x, thread_index.y, 0;
+      sweepSingleBand(voxel_index, 2, max_squared_esdf_distance_vox,
+                      esdf_block);
+      __syncthreads();
+    }
+
+    // Handle empty esdf block.
+    if (empty_esdf_block != nullptr) {
+      // TODO(@bmicha) improve / replace brute for check.
+      // Brute force approach to check for every boundary parent if another
+      // boundary's parent is closer. RW race conditions don't matter since we
+      // do not alter the values but just shuffle them around and maybe remove
+      // some.
+      constexpr int kNumBoundaryVoxels = EmptyEsdfBlock::kNumBoundaryVoxels;
+      const int stride = blockDim.x * blockDim.y;
+      // Iterate over all boundary voxels (bv).
+      for (int current_bv_flat_id = threadIdx.x + blockDim.x * threadIdx.y;
+           current_bv_flat_id < kNumBoundaryVoxels;
+           current_bv_flat_id += stride) {
+        const Index3D current_bv_idx =
+            getBoundaryVoxelIndexFromFlatIndex(current_bv_flat_id);
+        Index3D current_bv_parent_direction =
+            empty_esdf_block->boundary_parent_directions[current_bv_flat_id];
+        int current_distance = (current_bv_parent_direction == Index3D::Zero())
+                                   ? max_squared_esdf_distance_vox + 1
+                                   : current_bv_parent_direction.squaredNorm();
+
+        for (int other_bv_flat_id = 0; other_bv_flat_id < kNumBoundaryVoxels;
+             ++other_bv_flat_id) {
+          // Do not compare to self.
+          if (other_bv_flat_id == current_bv_flat_id) {
+            continue;
+          }
+
+          const Index3D other_bv_idx =
+              getBoundaryVoxelIndexFromFlatIndex(other_bv_flat_id);
+          Index3D other_bv_parent_direction =
+              empty_esdf_block->boundary_parent_directions[other_bv_flat_id];
+          if (other_bv_parent_direction == Index3D::Zero()) {
+            continue;
+          }
+
+          Index3D direction_to_other_parent =
+              other_bv_parent_direction + (other_bv_idx - current_bv_idx);
+          int distance_to_other_parent =
+              direction_to_other_parent.squaredNorm();
+
+          if (distance_to_other_parent < current_distance) {
+            empty_esdf_block->boundary_parent_directions[current_bv_flat_id] =
+                direction_to_other_parent;
+            current_bv_parent_direction = direction_to_other_parent;
+            current_distance = distance_to_other_parent;
+          }
+        }
+      }
+    }
   }
 }
 
 void EsdfIntegrator::sweepBlockBandAsync(device_vector<Index3D>* block_indices,
                                          EsdfLayer* esdf_layer,
+                                         EmptyEsdfLayer* empty_esdf_layer,
                                          float max_squared_esdf_distance_vox) {
   if (block_indices->empty()) {
     return;
@@ -1442,8 +1734,14 @@ void EsdfIntegrator::sweepBlockBandAsync(device_vector<Index3D>* block_indices,
   constexpr int kVoxelsPerSide = VoxelBlock<bool>::kVoxelsPerSide;
   const int num_blocks = block_indices->size();
 
-  GPULayerView<EsdfBlock>& gpu_layer_view =
+  GPULayerView<EsdfBlock>& esdf_gpu_layer_view =
       esdf_layer->getGpuLayerView(*cuda_stream_);
+
+  Index3DDeviceHashMapType<EmptyEsdfBlock> empty_esdf_hash_map;
+  if (has_esdf_two_resolutions_ && empty_esdf_layer != nullptr) {
+    empty_esdf_hash_map =
+        empty_esdf_layer->getGpuLayerView(*cuda_stream_).getHash().impl_;
+  }
 
   // Call the kernel.
   // We do 2-dimensional sweeps in this kernel. Each thread does 3 sweeps.
@@ -1455,15 +1753,17 @@ void EsdfIntegrator::sweepBlockBandAsync(device_vector<Index3D>* block_indices,
       1);
   dim3 dim_threads(kVoxelsPerSide, kVoxelsPerSide, kNumBlocksPerCudaBlock);
   sweepBlockBandKernel<<<dim_block, dim_threads, 0, *cuda_stream_>>>(
-      block_indices->size(),           // NOLINT
-      gpu_layer_view.getHash().impl_,  // NOLINT
-      max_squared_esdf_distance_vox,   // NOLINT
+      block_indices->size(),                // NOLINT
+      esdf_gpu_layer_view.getHash().impl_,  // NOLINT
+      empty_esdf_hash_map,                  // NOLINT
+      max_squared_esdf_distance_vox,        // NOLINT
       block_indices->data());
   checkCudaErrors(cudaPeekAtLastError());
 }
 
 void EsdfIntegrator::computeEsdf(
-    const device_vector<Index3D>& blocks_with_sites, EsdfLayer* esdf_layer) {
+    const device_vector<Index3D>& blocks_with_sites, EsdfLayer* esdf_layer,
+    EmptyEsdfLayer* empty_esdf_layer) {
   CHECK_NOTNULL(esdf_layer);
 
   if (blocks_with_sites.size() == 0) {
@@ -1479,14 +1779,14 @@ void EsdfIntegrator::computeEsdf(
   // First we go over all of the blocks with sites.
   // We compute all the proximal sites inside the block first.
   block_indices_device_.copyFromAsync(blocks_with_sites, *cuda_stream_);
-  sweepBlockBandAsync(&block_indices_device_, esdf_layer,
+  sweepBlockBandAsync(&block_indices_device_, esdf_layer, empty_esdf_layer,
                       max_squared_esdf_distance_vox);
 
   while (!block_indices_device_.empty()) {
-    updateNeighborBands(&block_indices_device_, esdf_layer,
+    updateNeighborBands(&block_indices_device_, esdf_layer, empty_esdf_layer,
                         max_squared_esdf_distance_vox,
                         &updated_indices_device_);
-    sweepBlockBandAsync(&updated_indices_device_, esdf_layer,
+    sweepBlockBandAsync(&updated_indices_device_, esdf_layer, empty_esdf_layer,
                         max_squared_esdf_distance_vox);
 
     timing::Timer swap_timer("esdf/integrate/compute/swap");
@@ -1520,64 +1820,112 @@ __device__ void getBlockAndVoxelIndexFromOffset(const Index3D& block_index,
 }
 
 __global__ void clearAllInvalidKernel(
-    Index3D* block_indices, Index3DDeviceHashMapType<EsdfBlock> block_hash,
+    Index3D* block_indices, Index3DDeviceHashMapType<EsdfBlock> esdf_block_hash,
+    Index3DDeviceHashMapType<EmptyEsdfBlock> empty_esdf_block_hash,
     float max_squared_esdf_distance_vox, Index3D* output_vector,
     int* updated_size) {
   __shared__ int block_updated;
+
   // Allow block size to be whatever.
   __shared__ EsdfBlock* block_ptr;
+  __shared__ EmptyEsdfBlock* empty_block_ptr;
+
+  const int flat_tid = threadIdx.x + threadIdx.y * blockDim.x +
+                       threadIdx.z * blockDim.x * blockDim.y;
+  EsdfVoxel* esdf_voxel = nullptr;
+
   // Get the current block for this... block.
   Index3D block_index = block_indices[blockIdx.x];
-  Index3D voxel_index = Index3D(threadIdx.x, threadIdx.y, threadIdx.z);
+
+  // First thread tries to fetch esdf block...
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
     block_ptr = nullptr;
-    auto it = block_hash.find(block_index);
-    if (it != block_hash.end()) {
-      block_ptr = it->second;
+    auto esdf_it = esdf_block_hash.find(block_index);
+    if (esdf_it != esdf_block_hash.end()) {
+      block_ptr = esdf_it->second;
     }
     block_updated = false;
   }
+  // ... second thread tries to fetch empty esdf block.
+  if (threadIdx.x == 1 && threadIdx.y == 0 && threadIdx.z == 0) {
+    empty_block_ptr = nullptr;
+
+    if (!empty_esdf_block_hash.empty()) {
+      auto esdf_it = empty_esdf_block_hash.find(block_index);
+      if (esdf_it != empty_esdf_block_hash.end()) {
+        empty_block_ptr = esdf_it->second;
+      }
+    }
+  }
+
   __syncthreads();
   // This block doesn't exist. Who knows why. This shouldn't happen.
-  if (block_ptr == nullptr) {
+  if (block_ptr == nullptr && empty_block_ptr == nullptr) {
     return;
   }
 
-  // Now for our specific voxel we should look up its parent and see if it's
-  // still there.
-  EsdfVoxel* esdf_voxel =
-      &block_ptr->voxels[voxel_index.x()][voxel_index.y()][voxel_index.z()];
-
-  if (esdf_voxel->observed && !esdf_voxel->is_site &&
-      esdf_voxel->parent_direction != Index3D::Zero()) {
-    Index3D neighbor_block_index, neighbor_voxel_index;
-    getBlockAndVoxelIndexFromOffset(
-        block_index, voxel_index, esdf_voxel->parent_direction,
-        &neighbor_block_index, &neighbor_voxel_index);
-
-    EsdfVoxel* neighbor_voxel = nullptr;
-    if (neighbor_block_index == block_index) {
-      neighbor_voxel =
-          &block_ptr->voxels[neighbor_voxel_index.x()][neighbor_voxel_index.y()]
-                            [neighbor_voxel_index.z()];
-    } else {
-      // Get the neighboring block.
-      auto it = block_hash.find(neighbor_block_index);
-      if (it != block_hash.end()) {
-        neighbor_voxel =
-            &it->second
-                 ->voxels[neighbor_voxel_index.x()][neighbor_voxel_index.y()]
-                         [neighbor_voxel_index.z()];
-      }
+  // Get parent block and voxel index.
+  Index3D parent_block_index, parent_voxel_index;
+  if (empty_block_ptr != nullptr) {
+    //  More threads are allocated than what we need for empty blocks.
+    if (flat_tid >= EmptyEsdfBlock::kNumBoundaryVoxels) {
+      return;
     }
-    if (neighbor_voxel == nullptr || !neighbor_voxel->is_site) {
-      // Clear this voxel.
-      esdf_voxel->parent_direction.setZero();
-      esdf_voxel->squared_distance_vox = max_squared_esdf_distance_vox;
-      block_updated = true;
+
+    Index3D* parent_direction =
+        &empty_block_ptr->boundary_parent_directions[flat_tid];
+
+    Index3D voxel_index = getBoundaryVoxelIndexFromFlatIndex(flat_tid);
+
+    getBlockAndVoxelIndexFromOffset(block_index, voxel_index, *parent_direction,
+                                    &parent_block_index, &parent_voxel_index);
+
+  } else if (block_ptr != nullptr) {
+    Index3D voxel_index = Index3D(threadIdx.x, threadIdx.y, threadIdx.z);
+    esdf_voxel =
+        &block_ptr->voxels[voxel_index.x()][voxel_index.y()][voxel_index.z()];
+
+    if (!esdf_voxel->observed || esdf_voxel->is_site ||
+        esdf_voxel->parent_direction == Index3D::Zero()) {
+      // do nothing.
+    }
+
+    getBlockAndVoxelIndexFromOffset(block_index, voxel_index,
+                                    esdf_voxel->parent_direction,
+                                    &parent_block_index, &parent_voxel_index);
+  }
+
+  // Get parent voxel.
+  EsdfVoxel* parent_voxel = nullptr;
+  if (parent_block_index == block_index && block_ptr != nullptr) {
+    parent_voxel =
+        &block_ptr->voxels[parent_voxel_index.x()][parent_voxel_index.y()]
+                          [parent_voxel_index.z()];
+  } else {
+    // Get block where parent is supposed to live.
+    auto esdf_it = esdf_block_hash.find(parent_block_index);
+    if (esdf_it != esdf_block_hash.end()) {
+      parent_voxel =
+          &esdf_it->second
+               ->voxels[parent_voxel_index.x()][parent_voxel_index.y()]
+                       [parent_voxel_index.z()];
     }
   }
+  // Parent is either no longer site or has been cleared.
+  if (parent_voxel == nullptr || !parent_voxel->is_site) {
+    // Clear this voxel.
+    if (block_ptr != nullptr) {
+      esdf_voxel->parent_direction.setZero();
+      esdf_voxel->squared_distance_vox = max_squared_esdf_distance_vox;
+    } else {
+      empty_block_ptr->boundary_parent_directions[flat_tid].setZero();
+    }
+    block_updated = true;
+  }
+
   __syncthreads();
+
+  // Mark block as updated.
   if ((threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) &&
       block_updated) {
     output_vector[atomicAdd(updated_size, 1)] = block_index;
@@ -1586,6 +1934,7 @@ __global__ void clearAllInvalidKernel(
 
 void EsdfIntegrator::clearAllInvalid(
     const std::vector<Index3D>& blocks_to_clear, EsdfLayer* esdf_layer,
+    EmptyEsdfLayer* empty_esdf_layer, const EmptySpaceLayer* empty_space_layer,
     device_vector<Index3D>* updated_blocks) {
   if (blocks_to_clear.size() == 0) {
     return;
@@ -1601,18 +1950,34 @@ void EsdfIntegrator::clearAllInvalid(
 
   timing::Timer get_blocks_timer("esdf/integrate/clear/get_blocks");
 
-  temp_indices_host_.copyFromAsync(
-      getBlocksWithinRadiusOfAABB(
-          esdf_layer->getAllBlockIndices(), esdf_layer->block_size(),
-          getAABBOfBlocks(esdf_layer->block_size(), blocks_to_clear),
-          max_esdf_distance_m_),
-      *cuda_stream_);
+  if (has_esdf_two_resolutions_) {
+    CHECK(empty_space_layer != nullptr);
+    temp_indices_host_.copyFromAsync(
+        getBlocksWithinRadiusOfAABB(
+            empty_space_layer->getAllBlockIndices(),
+            empty_space_layer->block_size(),
+            getAABBOfBlocks(empty_space_layer->block_size(), blocks_to_clear),
+            max_esdf_distance_m_),
+        *cuda_stream_);
+  } else {
+    temp_indices_host_.copyFromAsync(
+        getBlocksWithinRadiusOfAABB(
+            esdf_layer->getAllBlockIndices(), esdf_layer->block_size(),
+            getAABBOfBlocks(esdf_layer->block_size(), blocks_to_clear),
+            max_esdf_distance_m_),
+        *cuda_stream_);
+  }
   get_blocks_timer.Stop();
   temp_indices_device_.copyFromAsync(temp_indices_host_, *cuda_stream_);
 
   // Get the hash map of the whole ESDF map.
-  GPULayerView<EsdfBlock>& gpu_layer_view =
+  GPULayerView<EsdfBlock>& esdf_gpu_layer_view =
       esdf_layer->getGpuLayerView(*cuda_stream_);
+  Index3DDeviceHashMapType<EmptyEsdfBlock> empty_esdf_hash_map;
+  if (has_esdf_two_resolutions_ && empty_esdf_layer != nullptr) {
+    empty_esdf_hash_map =
+        empty_esdf_layer->getGpuLayerView(*cuda_stream_).getHash().impl_;
+  }
 
   // Create an output variable.
   if (updated_counter_device_ == nullptr || updated_counter_host_ == nullptr) {
@@ -1629,10 +1994,11 @@ void EsdfIntegrator::clearAllInvalid(
   if (temp_indices_device_.size() > 0) {
     clearAllInvalidKernel<<<temp_indices_device_.size(), dim_threads, 0,
                             *cuda_stream_>>>(
-        temp_indices_device_.data(),     // NOLINT
-        gpu_layer_view.getHash().impl_,  // NOLINT
-        max_squared_esdf_distance_vox,   // NOLINT
-        updated_blocks->data(),          // NOLINT
+        temp_indices_device_.data(),          // NOLINT
+        esdf_gpu_layer_view.getHash().impl_,  // NOLINT
+        empty_esdf_hash_map,                  // NOLINT
+        max_squared_esdf_distance_vox,        // NOLINT
+        updated_blocks->data(),               // NOLINT
         updated_counter_device_.get());
     checkCudaErrors(cudaPeekAtLastError());
 

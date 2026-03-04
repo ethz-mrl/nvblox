@@ -21,7 +21,10 @@ namespace nvblox {
 
 void EsdfIntegratorCPU::integrateBlocks(
     const TsdfLayer& tsdf_layer, const std::vector<Index3D>& block_indices,
-    EsdfLayer* esdf_layer) {
+    EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer,
+    const EmptySpaceLayer* empty_space_layer) {
+  (void)empty_esdf_layer;
+  (void)empty_space_layer;
   timing::Timer esdf_timer("esdf/integrate");
 
   timing::Timer allocate_timer("esdf/integrate/allocate");

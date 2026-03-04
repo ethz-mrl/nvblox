@@ -29,9 +29,10 @@ class EsdfIntegratorCPU : public EsdfIntegrator {
   /// @param block_indices The indices of the EsdfLayer which should be updated
   /// (usually because the TSDF at these indices has changed).
   /// @param[out] esdf_layer The output EsdfLayer
-  void integrateBlocks(const TsdfLayer& tsdf_layer,
-                       const std::vector<Index3D>& block_indices,
-                       EsdfLayer* esdf_layer) override;
+  void integrateBlocks(
+      const TsdfLayer& tsdf_layer, const std::vector<Index3D>& block_indices,
+      EsdfLayer* esdf_layer, EmptyEsdfLayer* empty_esdf_layer = nullptr,
+      const EmptySpaceLayer* empty_space_layer = nullptr) override;
 
  protected:
   void markAllSitesOnCPU(const TsdfLayer& tsdf_layer,

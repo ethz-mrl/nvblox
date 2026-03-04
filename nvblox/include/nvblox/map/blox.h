@@ -86,6 +86,40 @@ struct EmptySpaceBlock {
                         const CudaStream& cuda_stream);
 };
 
+/// An empty block containing potential parents.
+struct EmptyEsdfBlock {
+  using Ptr = unified_ptr<EmptyEsdfBlock>;
+  using ConstPtr = unified_ptr<const EmptyEsdfBlock>;
+
+  EmptyEsdfBlock() {}
+
+  static_assert(
+      VoxelBlock<bool>::kVoxelsPerSide > 2,
+      "kVoxelsPerSide must be greater than 2 for Empty Esdf Layer to work.");
+
+  /// Side length of inner block not holding voxels at block boundaries.
+  static constexpr int kVoxelsPerSideInnerBlock =
+      VoxelBlock<bool>::kVoxelsPerSide - 2;
+  static constexpr int kNumBoundaryVoxels =
+      VoxelBlock<bool>::kNumVoxels - kVoxelsPerSideInnerBlock *
+                                         kVoxelsPerSideInnerBlock *
+                                         kVoxelsPerSideInnerBlock;
+
+  // NOTE(@bmicha) with this being a direction and not an absolute position
+  // index, we do not have to calculate the absolute position when propagating
+  // the esdf.
+  /// Holds directions of parents of all voxels at the boundaries of the block.
+  Index3D boundary_parent_directions[kNumBoundaryVoxels];
+
+  /// Allocate an EmptyEsdfBlock of a given memory type.
+  static Ptr allocateAsync(MemoryType memory_type,
+                           const CudaStream& cuda_stream);
+  static Ptr allocate(MemoryType memory_type);
+  /// Initializes all the memory of the block to 0 by default.
+  static void initAsync(EmptyEsdfBlock* block_ptr, const MemoryType memory_type,
+                        const CudaStream& cuda_stream);
+};
+
 /// Return the size in bytes of a voxel block. Note that  function needs to be
 /// called from host and can therefore not be a member of VoxelBlock (which is
 /// typically allocated as a GPU pointers)
@@ -93,6 +127,8 @@ template <typename VoxelType>
 constexpr size_t sizeInBytes(const VoxelBlock<VoxelType>*);
 /// Return the size in bytes of an EmptySpaceBlock.
 constexpr size_t sizeInBytes(const EmptySpaceBlock*);
+/// Return the size in bytes of an EmptyEsdfBlock.
+constexpr size_t sizeInBytes(const EmptyEsdfBlock*);
 
 // Initialization Utility Functions
 /// Set all the memory of the block to 0 on the GPU.

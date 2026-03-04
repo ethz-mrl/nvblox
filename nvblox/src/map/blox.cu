@@ -76,6 +76,30 @@ void EmptySpaceBlock::initAsync(EmptySpaceBlock* block_ptr,
   }
 }
 
+// TODO(@bmicha) can we template this away??
+EmptyEsdfBlock::Ptr EmptyEsdfBlock::allocate(MemoryType memory_type) {
+  return allocateAsync(memory_type, CudaStreamOwning());
+}
+
+EmptyEsdfBlock::Ptr EmptyEsdfBlock::allocateAsync(
+    MemoryType memory_type, const CudaStream& cuda_stream) {
+  Ptr empty_block_ptr =
+      make_unified_async<EmptyEsdfBlock>(memory_type, cuda_stream);
+  initAsync(empty_block_ptr.get(), memory_type, cuda_stream);
+
+  return empty_block_ptr;
+}
+
+void EmptyEsdfBlock::initAsync(EmptyEsdfBlock* block_ptr,
+                               const MemoryType memory_type,
+                               const CudaStream& cuda_stream) {
+  if (memory_type == MemoryType::kDevice) {
+    setBlockBytesZeroOnGPUAsync(block_ptr, cuda_stream);
+  } else {
+    *block_ptr = EmptyEsdfBlock();
+  }
+}
+
 template <class BlockType>
 __global__ void initializeBlocksKernel(BlockType** block_ptrs, int num_blocks) {
   const int block_idx = blockIdx.x;
@@ -111,6 +135,16 @@ void initializeBlocksAsync(host_vector<EmptySpaceBlock*>& blocks,
                            const MemoryType memory_type) {
   for (auto& ptr : blocks) {
     EmptySpaceBlock::initAsync(ptr, memory_type, cuda_stream);
+  }
+}
+
+// Specialization for EmptyEsdfBlock
+template <>
+void initializeBlocksAsync(host_vector<EmptyEsdfBlock*>& blocks,
+                           const CudaStream& cuda_stream,
+                           const MemoryType memory_type) {
+  for (auto& ptr : blocks) {
+    EmptyEsdfBlock::initAsync(ptr, memory_type, cuda_stream);
   }
 }
 

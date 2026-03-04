@@ -57,6 +57,7 @@ add_nvblox_static_library(
   src/gpu_hash/freespace_layer_specialization.cu
   src/gpu_hash/empty_space_layer_specialization.cu
   src/gpu_hash/esdf_layer_specialization.cu
+  src/gpu_hash/empty_esdf_layer_specialization.cu
   src/gpu_hash/color_layer_specialization.cu
   src/gpu_hash/occupancy_layer_specialization.cu
   src/gpu_hash/mesh_layer_specialization.cu
