@@ -29,7 +29,7 @@ limitations under the License.
 #include "nvblox/gpu_hash/internal/cuda/gpu_indexing.cuh"
 #include "nvblox/gpu_hash/internal/cuda/gpu_set.cuh"
 #include "nvblox/integrators/internal/cuda/esdf_integrator_slicing.cuh"
-#include "nvblox/map/internal/impl/empty_esdf_boundary_indexing.h"
+#include "nvblox/map/internal/cuda/empty_esdf_boundary_indexing.cuh"
 #include "nvblox/utils/timing.h"
 
 namespace nvblox {
