@@ -16,6 +16,7 @@ limitations under the License.
 
 #pragma once
 
+#include "nvblox/serialization/empty_space_serializer_gpu.h"
 #include "nvblox/serialization/layer_serializer_gpu.h"
 #include "nvblox/serialization/mesh_serializer_gpu.h"
 
@@ -63,6 +64,11 @@ struct SerializerTypeTrait<OccupancyLayer> {
 template <>
 struct SerializerTypeTrait<FreespaceLayer> {
   using type = FreespaceLayerSerializerGpu;
+};
+
+template <>
+struct SerializerTypeTrait<EmptySpaceLayer> {
+  using type = EmptySpaceSerializerGpu;
 };
 
 template <>

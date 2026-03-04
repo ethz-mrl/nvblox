@@ -35,6 +35,7 @@ Mapper::Mapper(float voxel_size_m,
       tsdf_integrator_(cuda_stream),
       lidar_tsdf_integrator_(cuda_stream),
       freespace_integrator_(cuda_stream),
+      empty_space_integrator_(cuda_stream),
       occupancy_integrator_(cuda_stream),
       lidar_occupancy_integrator_(cuda_stream),
       tsdf_shape_clearer_(cuda_stream),
@@ -45,14 +46,14 @@ Mapper::Mapper(float voxel_size_m,
       esdf_integrator_(cuda_stream),
       depth_preprocessor_(cuda_stream),
       blocks_to_update_tracker_(projective_layer_type) {
-  layers_ = LayerCake::create<TsdfLayer, ColorLayer, FeatureLayer,
-                              FreespaceLayer, OccupancyLayer, EsdfLayer,
-                              ColorMeshLayer, FeatureMeshLayer>(
-      voxel_size_m_, block_memory_pool_params);
-  layer_streamers_ =
-      LayerCakeStreamer::create<TsdfLayer, ColorLayer, FeatureLayer,
-                                FreespaceLayer, OccupancyLayer, EsdfLayer,
-                                ColorMeshLayer, FeatureMeshLayer>();
+  layers_ =
+      LayerCake::create<TsdfLayer, ColorLayer, FeatureLayer, FreespaceLayer,
+                        OccupancyLayer, EsdfLayer, ColorMeshLayer,
+                        FeatureMeshLayer, EmptySpaceLayer>(
+          voxel_size_m_, block_memory_pool_params);
+  layer_streamers_ = LayerCakeStreamer::create<
+      TsdfLayer, ColorLayer, FeatureLayer, FreespaceLayer, OccupancyLayer,
+      EsdfLayer, ColorMeshLayer, FeatureMeshLayer, EmptySpaceLayer>();
   // Make the camera integrators share the same viewpoint cache.
   shareViewpointCaches(&tsdf_integrator_, &occupancy_integrator_,
                        &color_integrator_, &feature_integrator_);
@@ -67,6 +68,7 @@ Mapper::Mapper(const std::string& map_filepath,
       tsdf_integrator_(cuda_stream),
       lidar_tsdf_integrator_(cuda_stream),
       freespace_integrator_(cuda_stream),
+      empty_space_integrator_(cuda_stream),
       occupancy_integrator_(cuda_stream),
       lidar_occupancy_integrator_(cuda_stream),
       tsdf_shape_clearer_(cuda_stream),
@@ -85,6 +87,7 @@ void Mapper::setMapperParams(const MapperParams& params) {
   // depth preprocessing
   do_depth_preprocessing(params.do_depth_preprocessing);
   depth_preprocessing_num_dilations(params.depth_preprocessing_num_dilations);
+  do_empty_space_clearing(params.do_empty_space_clearing);
 
   // ======= ESDF INTEGRATOR =======
   esdf_integrator().esdf_slice_min_height(
@@ -273,6 +276,14 @@ void Mapper::setMapperParams(const MapperParams& params) {
           .min_consecutive_occupancy_duration_for_reset_ms);
   freespace_integrator().check_neighborhood(
       params.freespace_integrator_params.check_neighborhood);
+
+  // ======= EMPTY SPACE INTEGRATOR =======
+  empty_space_integrator().layers_to_clear(
+      params.empty_space_integrator_params.layers_to_clear);
+  empty_space_integrator().emptyness_classifier_type(
+      params.empty_space_integrator_params.emptyness_classifier_type);
+  empty_space_integrator().voxel_weight_threshold(
+      params.empty_space_integrator_params.voxel_weight_threshold);
 }
 
 TsdfLayer& Mapper::tsdf_layer() {
@@ -289,6 +300,12 @@ OccupancyLayer& Mapper::occupancy_layer() {
 
 FreespaceLayer& Mapper::freespace_layer() {
   auto ptr = layers_.getPtr<FreespaceLayer>();
+  CHECK_NOTNULL(ptr);
+  return *ptr;
+}
+
+EmptySpaceLayer& Mapper::empty_space_layer() {
+  auto ptr = layers_.getPtr<EmptySpaceLayer>();
   CHECK_NOTNULL(ptr);
   return *ptr;
 }
@@ -611,6 +628,119 @@ void Mapper::updateColorMesh(UpdateFullLayer update_full_layer) {
                      BlocksToUpdateType::kColorMesh);
 }
 
+void Mapper::updateEmptySpace(UpdateFullLayer update_full_layer) {
+  // TODO(@bmicha) currently we only support empty space from tsdf layers.
+  CHECK(hasTsdfLayer(projective_layer_type_))
+      << "Trying to update the empty space layer while it is not enabled.";
+
+  // Get the empty space blocks that need an update
+  std::vector<Index3D> blocks_to_update =
+      getBlocksToUpdate(BlocksToUpdateType::kEmptySpace, update_full_layer);
+
+  empty_space_integrator_.updateEmptySpaceLayer(
+      blocks_to_update, layers_.get<TsdfLayer>(),
+      layers_.getPtr<EmptySpaceLayer>(),
+      tsdf_integrator_.truncation_distance_vox());
+
+  // Mark blocks as updated
+  blocks_to_update_tracker_.markBlocksAsUpdated(
+      BlocksToUpdateType::kEmptySpace);
+  layers_.getPtr<EmptySpaceLayer>()->updateGpuHash(*cuda_stream_);
+}
+
+void Mapper::clearEmptySpaceBlocksInLayers(UpdateFullLayer check_full_layer) {
+  // If empty space clearing not requested then no-op.
+  if (!do_empty_space_clearing_) {
+    return;
+  }
+
+  // Get the empty space blocks that need an update.
+  std::vector<Index3D> blocks_to_update = getBlocksToUpdate(
+      BlocksToUpdateType::kEmptySpaceClearing, check_full_layer);
+
+  // Get the indices of blocks that are marked empty.
+  std::vector<Index3D> block_indices_to_be_cleared =
+      empty_space_integrator_.getIndicesOfAllBlocksMarkedEmpty(
+          blocks_to_update, &empty_space_layer());
+
+  if (block_indices_to_be_cleared.empty()) {
+    // Mark blocks as updated even if nothing to clear.
+    blocks_to_update_tracker_.markBlocksAsUpdated(
+        BlocksToUpdateType::kEmptySpaceClearing);
+    return;
+  }
+
+  // Get the layer types that should be cleared.
+  LayerTypeBitMask layers_to_clear = empty_space_integrator_.layers_to_clear();
+
+  // Clear blocks from each specified layer type
+  if (layers_to_clear & LayerType::kTsdf) {
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &tsdf_layer(), &empty_space_layer());
+      tsdf_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kColor) {
+    empty_space_integrator_.clearEmptyBlocksFromLayer(
+        block_indices_to_be_cleared, &color_layer(), &empty_space_layer());
+    color_layer().updateGpuHash(*cuda_stream_);
+  }
+
+  if (layers_to_clear & LayerType::kFeature) {
+    empty_space_integrator_.clearEmptyBlocksFromLayer(
+        block_indices_to_be_cleared, &feature_layer(), &empty_space_layer());
+    feature_layer().updateGpuHash(*cuda_stream_);
+  }
+
+  if (layers_to_clear & LayerType::kColorMesh) {
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &color_mesh_layer(),
+          &empty_space_layer());
+      color_mesh_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kFeatureMesh) {
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &feature_mesh_layer(),
+          &empty_space_layer());
+      feature_mesh_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kFreespace) {
+    if (hasFreespaceLayer(projective_layer_type_)) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &freespace_layer(),
+          &empty_space_layer());
+      freespace_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  if (layers_to_clear & LayerType::kEsdf) {
+    empty_space_integrator_.clearEmptyBlocksFromLayer(
+        block_indices_to_be_cleared, &esdf_layer(), &empty_space_layer());
+    esdf_layer().updateGpuHash(*cuda_stream_);
+  }
+
+  if (layers_to_clear & LayerType::kOccupancy) {
+    if (projective_layer_type_ == ProjectiveLayerType::kOccupancy) {
+      empty_space_integrator_.clearEmptyBlocksFromLayer(
+          block_indices_to_be_cleared, &occupancy_layer(),
+          &empty_space_layer());
+      occupancy_layer().updateGpuHash(*cuda_stream_);
+    }
+  }
+
+  // Mark blocks as updated
+  blocks_to_update_tracker_.markBlocksAsUpdated(
+      BlocksToUpdateType::kEmptySpaceClearing);
+}
+
 void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
   CHECK(esdf_mode_ != EsdfMode::k2D) << "Currently, we limit computation of "
                                         "the ESDF to 2d *or* 3d. Not both.";
@@ -762,6 +892,9 @@ void Mapper::clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear) {
                                                        *cuda_stream_);
     layers_.getPtr<FeatureMeshLayer>()->clearBlocksAsync(blocks_to_clear,
                                                          *cuda_stream_);
+    // TODO(@bmicha) currently we only support empty space from tsdf layers.
+    layers_.getPtr<EmptySpaceLayer>()->clearBlocksAsync(blocks_to_clear,
+                                                        *cuda_stream_);
   }
   // Clear the freespace blocks, if existent.
   if (hasFreespaceLayer(projective_layer_type_)) {
@@ -932,6 +1065,7 @@ parameters::ParameterTreeNode Mapper::getParameterTree(
                          depth_preprocessing_num_dilations_),
        ParameterTreeNode("exclude_last_view_from_decay",
                          exclude_last_view_from_decay_),
+       ParameterTreeNode("do_empty_space_clearing", do_empty_space_clearing_),
        tsdf_integrator_.getParameterTree("camera_tsdf_integrator"),
        lidar_tsdf_integrator_.getParameterTree("lidar_tsdf_integrator"),
        color_integrator_.getParameterTree(),
@@ -944,7 +1078,8 @@ parameters::ParameterTreeNode Mapper::getParameterTree(
        feature_mesh_integrator_.getParameterTree(),
        occupancy_decay_integrator_.getParameterTree(),
        tsdf_decay_integrator_.getParameterTree(),
-       freespace_integrator_.getParameterTree()});
+       freespace_integrator_.getParameterTree(),
+       empty_space_integrator_.getParameterTree()});
 }
 
 std::string Mapper::getParametersAsString() const {
@@ -970,6 +1105,10 @@ std::shared_ptr<SerializedOccupancyLayer> Mapper::serializedOccupancyLayer() {
 
 std::shared_ptr<SerializedFreespaceLayer> Mapper::serializedFreespaceLayer() {
   return layer_streamers_.getSerializedLayer<FreespaceLayer>();
+}
+
+std::shared_ptr<SerializedEmptySpaceLayer> Mapper::serializedEmptySpaceLayer() {
+  return layer_streamers_.getSerializedLayer<EmptySpaceLayer>();
 }
 
 std::shared_ptr<SerializedEsdfLayer> Mapper::serializedEsdfLayer() {

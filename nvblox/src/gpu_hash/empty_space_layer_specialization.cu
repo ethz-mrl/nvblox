@@ -14,23 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 #include "nvblox/gpu_hash/gpu_layer_view.h"
-
-#include <thrust/device_vector.h>
-#include <thrust/host_vector.h>
-#include <thrust/pair.h>
-
 #include "nvblox/gpu_hash/internal/cuda/impl/gpu_layer_view_impl.cuh"
 #include "nvblox/map/common_names.h"
 
 namespace nvblox {
 
-// Compile Specializations for the standard block types.
-template class GPULayerView<TsdfBlock>;
-template class GPULayerView<FreespaceBlock>;
+// GPULayer Template specialiations are slow to build. Therefore they are kept
+// in individual source files to allow for parallel compilation.
 template class GPULayerView<EmptySpaceBlock>;
-template class GPULayerView<EsdfBlock>;
-template class GPULayerView<ColorBlock>;
-template class GPULayerView<OccupancyBlock>;
-template class GPULayerView<MeshBlock>;
 
 }  // namespace nvblox

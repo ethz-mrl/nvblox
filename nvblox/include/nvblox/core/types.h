@@ -82,10 +82,57 @@ enum class LayerType : int {
   kFeatureMesh,
   kFreespace,
   kOccupancy,
-  kFeature
+  kFeature,
+  kEmptySpace
 };
 
 using LayerTypeBitMask = BitMask<LayerType>;
+
+template <>
+inline std::string toString(const LayerTypeBitMask& bitmask) {
+  std::vector<std::string> layer_names;
+
+  if (bitmask & LayerType::kTsdf) {
+    layer_names.push_back("kTsdf");
+  }
+  if (bitmask & LayerType::kEsdf) {
+    layer_names.push_back("kEsdf");
+  }
+  if (bitmask & LayerType::kColor) {
+    layer_names.push_back("kColor");
+  }
+  if (bitmask & LayerType::kColorMesh) {
+    layer_names.push_back("kColorMesh");
+  }
+  if (bitmask & LayerType::kFeatureMesh) {
+    layer_names.push_back("kFeatureMesh");
+  }
+  if (bitmask & LayerType::kFreespace) {
+    layer_names.push_back("kFreespace");
+  }
+  if (bitmask & LayerType::kOccupancy) {
+    layer_names.push_back("kOccupancy");
+  }
+  if (bitmask & LayerType::kFeature) {
+    layer_names.push_back("kFeature");
+  }
+  if (bitmask & LayerType::kEmptySpace) {
+    layer_names.push_back("kEmptySpace");
+  }
+
+  if (layer_names.empty()) {
+    return "none";
+  }
+
+  std::string result;
+  for (size_t i = 0; i < layer_names.size(); ++i) {
+    if (i > 0) {
+      result += " | ";
+    }
+    result += layer_names[i];
+  }
+  return result;
+}
 
 inline bool isAccessibleOnCPU(const MemoryType memory_type) {
   return ((memory_type == MemoryType::kHost) ||

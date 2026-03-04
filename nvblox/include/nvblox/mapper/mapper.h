@@ -21,6 +21,7 @@ limitations under the License.
 #include "nvblox/core/hash.h"
 #include "nvblox/core/parameter_tree.h"
 #include "nvblox/dynamics/dynamics_detection.h"
+#include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/esdf_integrator.h"
 #include "nvblox/integrators/freespace_integrator.h"
 #include "nvblox/integrators/occupancy_decay_integrator.h"
@@ -237,6 +238,16 @@ class Mapper : public MapperBase {
   void updateFeatureMesh(
       UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
 
+  /// Updates the empty space blocks.
+  /// @param update_full_layer Whether to update the full layer or only the
+  /// blocks that require and update.
+  void updateEmptySpace(
+      UpdateFullLayer update_full_layer = UpdateFullLayer::kNo);
+
+  /// Removes blocks marked empty in EmptySpaceLayer from the specified layers.
+  void clearEmptySpaceBlocksInLayers(
+      UpdateFullLayer check_full_layer = UpdateFullLayer::kNo);
+
   /// Serialize selected layers.
   ///
   /// Will update serialized layers to contain new blocks added to the map since
@@ -282,6 +293,9 @@ class Mapper : public MapperBase {
 
   /// Return the serialized freespace layer.
   std::shared_ptr<SerializedFreespaceLayer> serializedFreespaceLayer();
+
+  /// Return the serialized empty space layer.
+  std::shared_ptr<SerializedEmptySpaceLayer> serializedEmptySpaceLayer();
 
   /// Updates the ESDF blocks.
   /// Note that currently we limit the Mapper class to calculating *either*
@@ -349,6 +363,11 @@ class Mapper : public MapperBase {
     return layers_.get<FreespaceLayer>();
   }
   /// Getter
+  ///@return const EmptySpaceLayer& empty space layer
+  const EmptySpaceLayer& empty_space_layer() const {
+    return layers_.get<EmptySpaceLayer>();
+  }
+  /// Getter
   ///@return const ColorLayer& Color layer
   const ColorLayer& color_layer() const { return layers_.get<ColorLayer>(); }
   /// Getter
@@ -386,6 +405,9 @@ class Mapper : public MapperBase {
   ///@return FreespaceLayer& freespace layer
   FreespaceLayer& freespace_layer();
   /// Getter
+  ///@return EmptySpaceLayer& empty space layer
+  EmptySpaceLayer& empty_space_layer();
+  /// Getter
   ///@return ColorLayer& Color layer
   ColorLayer& color_layer();
   /// Getter
@@ -421,6 +443,12 @@ class Mapper : public MapperBase {
   ///        updating the freespace layer according to a tsdf layer.
   const FreespaceIntegrator& freespace_integrator() const {
     return freespace_integrator_;
+  }
+  /// Getter
+  ///@return const EmptySpaceIntegrator& empty space integrator used for
+  ///        updating the empty space layer according to a tsdf layer.
+  const EmptySpaceIntegrator& empty_space_integrator() const {
+    return empty_space_integrator_;
   }
   /// Getter
   ///@return const ProjectiveTsdfIntegrator& TSDF integrator used for
@@ -490,6 +518,12 @@ class Mapper : public MapperBase {
   ///@return FreespaceIntegrator& freespace integrator used for
   ///        updating the freespace layer according to a tsdf layer.
   FreespaceIntegrator& freespace_integrator() { return freespace_integrator_; }
+  /// Getter
+  ///@return EmptySpaceIntegrator& empty space integrator used for
+  ///        updating the empty space layer according to a tsdf layer.
+  EmptySpaceIntegrator& empty_space_integrator() {
+    return empty_space_integrator_;
+  }
   /// Getter
   ///@return ProjectiveTsdfIntegrator& TSDF integrator used for
   ///        3D LiDAR scan integration.
@@ -582,6 +616,17 @@ class Mapper : public MapperBase {
   /// @param exclude_last_view_from_decay
   void exclude_last_view_from_decay(const bool exclude_last_view_from_decay) {
     exclude_last_view_from_decay_ = exclude_last_view_from_decay;
+  }
+
+  /// Getter
+  /// @return Whether blocks marked empty in the empty space layer should be
+  /// cleared from the configured layers.
+  bool do_empty_space_clearing() const { return do_empty_space_clearing_; }
+  /// Setter
+  /// @param do_empty_space_clearing Whether blocks marked empty in the empty
+  /// space layer should be cleared from the configured layers.
+  void do_empty_space_clearing(const bool do_empty_space_clearing) {
+    do_empty_space_clearing_ = do_empty_space_clearing;
   }
 
   /// Saving and loading functions.
@@ -683,7 +728,8 @@ class Mapper : public MapperBase {
       BlocksToUpdateType blocks_to_update_type,
       UpdateFullLayer update_full_layer) const;
 
-  /// @brief Deallocate blocks int the esdf, mesh and freespace layer.
+  /// @brief Deallocate blocks int the esdf, mesh, freespace and empty space
+  /// layer.
   /// @param blocks_to_clear Vector of blocks to clear.
   void clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear);
 
@@ -706,6 +752,7 @@ class Mapper : public MapperBase {
   ProjectiveTsdfIntegrator tsdf_integrator_;
   ProjectiveTsdfIntegrator lidar_tsdf_integrator_;
   FreespaceIntegrator freespace_integrator_;
+  EmptySpaceIntegrator empty_space_integrator_;
   ProjectiveOccupancyIntegrator occupancy_integrator_;
   ProjectiveOccupancyIntegrator lidar_occupancy_integrator_;
   OccupancyDecayIntegrator occupancy_decay_integrator_;
@@ -742,6 +789,11 @@ class Mapper : public MapperBase {
   /// Whether to exclude the last depth frustum from the decay
   bool exclude_last_view_from_decay_ =
       kExcludeLastViewFromDecayParamDesc.default_value;
+
+  /// Whether blocks marked empty in the empty space layer should be cleared
+  /// from the selected layers.
+  bool do_empty_space_clearing_ = kDoEmptySpaceClearingParamDesc.default_value;
+
   /// Last known depth viewpoint for view-based decay exclusion
   std::optional<DepthImage> last_depth_image_;
   std::optional<Camera> last_depth_camera_;

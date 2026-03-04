@@ -66,16 +66,39 @@ struct VoxelBlock {
   const_iterator cend() const;
 };
 
+/// An empty block containing a bool indicating whether the space is empty /
+/// unoccupied / free.
+struct EmptySpaceBlock {
+  using Ptr = unified_ptr<EmptySpaceBlock>;
+  using ConstPtr = unified_ptr<const EmptySpaceBlock>;
+
+  EmptySpaceBlock(bool _is_empty = true) : is_empty(_is_empty) {}
+
+  bool is_empty;
+
+  /// Allocate an EmptySpaceBlock of a given memory type.
+  static Ptr allocateAsync(MemoryType memory_type,
+                           const CudaStream& cuda_stream);
+  static Ptr allocate(MemoryType memory_type);
+  /// Initializes all the memory of the block to 0 by default.
+  static void initAsync(EmptySpaceBlock* block_ptr,
+                        const MemoryType memory_type,
+                        const CudaStream& cuda_stream);
+};
+
 /// Return the size in bytes of a voxel block. Note that  function needs to be
 /// called from host and can therefore not be a member of VoxelBlock (which is
 /// typically allocated as a GPU pointers)
 template <typename VoxelType>
 constexpr size_t sizeInBytes(const VoxelBlock<VoxelType>*);
+/// Return the size in bytes of an EmptySpaceBlock.
+constexpr size_t sizeInBytes(const EmptySpaceBlock*);
 
 // Initialization Utility Functions
 /// Set all the memory of the block to 0 on the GPU.
 template <typename BlockType>
-void setBlockBytesZeroOnGPUAsync(BlockType* block_device_ptr);
+void setBlockBytesZeroOnGPUAsync(BlockType* block_device_ptr,
+                                 const CudaStream& cuda_stream);
 /// Set all of the default colors to gray on a GPU.
 void setColorBlockGrayOnGPUAsync(VoxelBlock<ColorVoxel>* block_device_ptr,
                                  const CudaStream& cuda_stream);

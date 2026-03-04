@@ -27,6 +27,10 @@ namespace nvblox {
 DEFINE_bool(do_depth_preprocessing, kDoDepthPrepocessingParamDesc.default_value,
             kDoDepthPrepocessingParamDesc.help_string);
 
+DEFINE_bool(do_empty_space_clearing,
+            kDoEmptySpaceClearingParamDesc.default_value,
+            kDoEmptySpaceClearingParamDesc.help_string);
+
 DEFINE_int32(depth_preprocessing_num_dilations,
              kDepthPreprocessingNumDilationsParamDesc.default_value,
              kDepthPreprocessingNumDilationsParamDesc.help_string);
@@ -222,6 +226,15 @@ DEFINE_int64(
 DEFINE_bool(check_neighborhood, kCheckNeighborhoodParamDesc.default_value,
             kCheckNeighborhoodParamDesc.help_string);
 
+// ======= EMPTY SPACE INTEGRATOR =======
+DEFINE_double(voxel_weight_threshold,
+              kVoxelWeightThresholdParamDesc.default_value,
+              kVoxelWeightThresholdParamDesc.help_string);
+
+DEFINE_int32(emptyness_classifier_type,
+             static_cast<int>(kEmptynessClassifierTypeParamDesc.default_value),
+             kEmptynessClassifierTypeParamDesc.help_string);
+
 // <<<<<<<<<<<<<<<<<<<<<<<<<< GET THE PARAMS >>>>>>>>>>>>>>>>>>>>>>>>>>
 
 inline MultiMapperParams get_multi_mapper_params_from_gflags() {
@@ -328,6 +341,14 @@ inline MapperParams get_mapper_params_from_gflags() {
               << FLAGS_esdf_slice_height;
     params.esdf_integrator_params.esdf_slice_height =
         static_cast<float>(FLAGS_esdf_slice_height);
+  }
+  //   Map clearing
+  if (!gflags::GetCommandLineFlagInfoOrDie("do_empty_space_clearing")
+           .is_default) {
+    LOG(INFO) << "command line parameter found: "
+                 "do_empty_space_clearing = "
+              << FLAGS_do_empty_space_clearing;
+    params.do_empty_space_clearing = FLAGS_do_empty_space_clearing;
   }
 
   // ======= PROJECTIVE INTEGRATOR (TSDF/COLOR/OCCUPANCY) =======
@@ -644,6 +665,22 @@ inline MapperParams get_mapper_params_from_gflags() {
               << FLAGS_check_neighborhood;
     params.freespace_integrator_params.check_neighborhood =
         FLAGS_check_neighborhood;
+  }
+
+  // ======= EMPTY SPACE INTEGRATOR =======
+  if (!gflags::GetCommandLineFlagInfoOrDie("voxel_weight_threshold")
+           .is_default) {
+    LOG(INFO) << "Command line parameter found: voxel_weight_threshold = "
+              << FLAGS_voxel_weight_threshold;
+    params.empty_space_integrator_params.voxel_weight_threshold =
+        static_cast<float>(FLAGS_voxel_weight_threshold);
+  }
+  if (!gflags::GetCommandLineFlagInfoOrDie("emptyness_classifier_type")
+           .is_default) {
+    LOG(INFO) << "Command line parameter found: emptyness_classifier_type "
+              << FLAGS_emptyness_classifier_type;
+    params.empty_space_integrator_params.emptyness_classifier_type =
+        static_cast<EmptynessClassifierType>(FLAGS_emptyness_classifier_type);
   }
 
   // return the written params

@@ -42,6 +42,12 @@ void BlocksToUpdateTracker::addBlocksToUpdate(
       freespace_blocks_to_update_.insert(vec.begin(), vec.end());
     }
 
+    // TODO(@bmicha) currently we only support empty space from tsdf layers.
+    if (hasTsdfLayer(projective_layer_type_)) {
+      empty_space_blocks_to_update_.insert(vec.begin(), vec.end());
+      empty_space_clearing_blocks_to_update_.insert(vec.begin(), vec.end());
+    }
+
     // Safety vent to prevent the set from growing indefinitely if there is no
     // consumer.
     clearIfTooLarge(esdf_blocks_to_update_, "esdf");
@@ -49,6 +55,9 @@ void BlocksToUpdateTracker::addBlocksToUpdate(
     clearIfTooLarge(feature_mesh_blocks_to_update_, "feature_mesh");
     clearIfTooLarge(layer_streamer_blocks_to_update_, "layer_streamer");
     clearIfTooLarge(freespace_blocks_to_update_, "freespace");
+    clearIfTooLarge(empty_space_blocks_to_update_, "empty_space");
+    clearIfTooLarge(empty_space_clearing_blocks_to_update_,
+                    "empty_space_clearing");
   };
 
   // Synchronize (wait for other async calls to finish) and
@@ -69,6 +78,12 @@ void BlocksToUpdateTracker::removeBlocksToUpdate(
 
       if (hasFreespaceLayer(projective_layer_type_)) {
         freespace_blocks_to_update_.erase(idx);
+      }
+
+      // TODO(@bmicha) currently we only support empty space from tsdf layers.
+      if (hasTsdfLayer(projective_layer_type_)) {
+        empty_space_blocks_to_update_.erase(idx);
+        empty_space_clearing_blocks_to_update_.erase(idx);
       }
     }
   };
@@ -97,6 +112,12 @@ std::vector<Index3D> BlocksToUpdateTracker::getBlocksToUpdate(
     case BlocksToUpdateType::kFreespace:
       return {freespace_blocks_to_update_.begin(),
               freespace_blocks_to_update_.end()};
+    case BlocksToUpdateType::kEmptySpace:
+      return {empty_space_blocks_to_update_.begin(),
+              empty_space_blocks_to_update_.end()};
+    case BlocksToUpdateType::kEmptySpaceClearing:
+      return {empty_space_clearing_blocks_to_update_.begin(),
+              empty_space_clearing_blocks_to_update_.end()};
     case BlocksToUpdateType::kLayerStreamer:
       return {layer_streamer_blocks_to_update_.begin(),
               layer_streamer_blocks_to_update_.end()};
@@ -122,6 +143,12 @@ void BlocksToUpdateTracker::markBlocksAsUpdated(
         break;
       case BlocksToUpdateType::kFreespace:
         freespace_blocks_to_update_.clear();
+        break;
+      case BlocksToUpdateType::kEmptySpace:
+        empty_space_blocks_to_update_.clear();
+        break;
+      case BlocksToUpdateType::kEmptySpaceClearing:
+        empty_space_clearing_blocks_to_update_.clear();
         break;
       case BlocksToUpdateType::kLayerStreamer:
         layer_streamer_blocks_to_update_.clear();

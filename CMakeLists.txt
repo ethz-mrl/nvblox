@@ -39,8 +39,8 @@ include(cmake/nvblox_targets.cmake)
 
 # This option avoids any implementations using std::string in their signature in
 # header files Useful for Nvblox PyTorch wrapper, which requires the old
-# Pre-CXX11 ABIif (BUILD_PYTORCH_WRAPPER)
-# It seems Pre-C++11 ABI is not compatible with compute architecture >= 120.
+# Pre-CXX11 ABIif (BUILD_PYTORCH_WRAPPER) It seems Pre-C++11 ABI is not
+# compatible with compute architecture >= 120.
 set(PRE_CXX11_ABI_LINKABLE_DEFAULT OFF)
 if(CMAKE_CUDA_ARCHITECTURES)
   list(GET CMAKE_CUDA_ARCHITECTURES 0 FIRST_ARCH)
@@ -49,9 +49,8 @@ if(CMAKE_CUDA_ARCHITECTURES)
   endif()
 endif()
 
-option(PRE_CXX11_ABI_LINKABLE 
-  "Better support pre-C++11 ABI library users" 
-  ${PRE_CXX11_ABI_LINKABLE_DEFAULT})
+option(PRE_CXX11_ABI_LINKABLE "Better support pre-C++11 ABI library users"
+       ${PRE_CXX11_ABI_LINKABLE_DEFAULT})
 
 if(BUILD_PYTORCH_WRAPPER)
   add_subdirectory(nvblox_torch/cpp)

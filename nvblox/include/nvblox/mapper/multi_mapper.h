@@ -234,6 +234,12 @@ class MultiMapper {
   /// type.
   void updateEsdf();
 
+  /// @brief Updating the empty space layer of the static map.
+  void updateEmptySpace();
+
+  // @brief Clear empty space blocks from static / background mapper.
+  void clearEmptySpaceBlocks();
+
   /// @brief Updating the mesh layers of the mappers depending on the mapping
   /// type.
   void updateColorMesh();

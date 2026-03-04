@@ -85,6 +85,13 @@ int Fuser::run() {
   // Integrate all the data
   integrateFrames();
 
+  // Clear empty blocks from layers.
+  multi_mapper_->updateEmptySpace();
+  multi_mapper_->clearEmptySpaceBlocks();
+
+  // Report block clearing stats.
+  outputBlockClearingStatsToCL();
+
   if (!occupancy_output_path_.empty()) {
     if (mapping_type_ == MappingType::kStaticOccupancy) {
       LOG(INFO) << "Outputting occupancy pointcloud ply file to "
@@ -192,6 +199,17 @@ datasets::DataLoadResult Fuser::integrateFrame(const int frame_number) {
     }
   }
 
+  // Empty space update and clearing
+  if (empty_space_frame_interval_ > 0) {
+    if ((frame_number + 1) % empty_space_frame_interval_ == 0) {
+      timing::Timer timer_integrate_empty_space("fuser/integrate_empty_space");
+      timing::Rates::tick("fuser/integrate_empty_space");
+      multi_mapper_->updateEmptySpace();
+      multi_mapper_->clearEmptySpaceBlocks();
+      timer_integrate_empty_space.Stop();
+    }
+  }
+
   // Color integration
   if ((frame_number + 1) % color_frame_subsampling_ == 0) {
     timing::Timer timer_integrate_color("fuser/integrate_color");
@@ -278,6 +296,42 @@ bool Fuser::outputTimingsToFile() {
 bool Fuser::outputMapToFile() {
   timing::Timer timer_serialize("fuser/map/write");
   return static_mapper()->saveLayerCake(map_output_path_);
+}
+
+void Fuser::outputBlockClearingStatsToCL() {
+  const float voxel_size = multi_mapper_->background_mapper()->voxel_size_m();
+  const auto classifier_type = multi_mapper_->background_mapper()
+                                   ->empty_space_integrator()
+                                   .emptyness_classifier_type();
+  const int num_blocks_before_clearing = multi_mapper_->background_mapper()
+                                             ->empty_space_layer()
+                                             .getAllBlockIndices()
+                                             .size();
+  const int num_blocks_after_clearing = multi_mapper_->background_mapper()
+                                            ->tsdf_layer()
+                                            .getAllBlockIndices()
+                                            .size();
+  const float percentage_blocks_cleared =
+      100.f *
+      (static_cast<float>(num_blocks_before_clearing) -
+       static_cast<float>(num_blocks_after_clearing)) /
+      (static_cast<float>(num_blocks_before_clearing));
+
+  std::cout << "*****************************************" << std::endl;
+  std::cout << "******** Empty Space Performance ********" << std::endl;
+  std::cout << "*****************************************" << std::endl;
+  std::cout << "-- Param: Voxel Size [m]:\t " << voxel_size << std::endl;
+  std::cout << "-- Param: Classifier Type:\t " << toString(classifier_type)
+            << std::endl;
+  std::cout << "-- Param: Integration Interval:\t "
+            << empty_space_frame_interval_ << std::endl;
+  std::cout << "-- Num blocks before clearing:\t " << num_blocks_before_clearing
+            << std::endl;
+  std::cout << "-- Num blocks after clearing:\t " << num_blocks_after_clearing
+            << std::endl;
+  std::cout << "-- Percentage cleared: \t\t " << percentage_blocks_cleared
+            << "%" << std::endl;
+  std::cout << "*****************************************" << std::endl;
 }
 
 std::shared_ptr<const ColorImage> Fuser::getColorFrame() const {

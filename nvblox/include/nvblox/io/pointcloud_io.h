@@ -40,6 +40,15 @@ template <typename VoxelType>
 bool outputVoxelLayerToPly(const VoxelBlockLayer<VoxelType>& layer,
                            const std::string& filename);
 
+/// Outputs a block layer as a pointcloud with the lambda function deciding the
+/// intensity.
+/// The lambda outputs a boolean, saying whether that voxel should be
+/// visualized, and an intensity which will be written to the pointcloud.
+template <typename BlockType>
+bool outputBlockLayerToPly(
+    const BlockLayer<BlockType>& layer, const std::string& filename,
+    std::function<bool(const BlockType* block, float* intensity)> lambda);
+
 /// @brief Function to store a pointcloud as a ply file.
 /// @param pointcloud The pointcloud to store as a ply file.
 /// @param filename Filename to store the ply to.

@@ -32,6 +32,7 @@ TEST(FuserTest, CommandLineFlags) {
       (char*)"--esdf_output_path=4",
       (char*)"--mesh_output_path=5",
       (char*)"--map_output_path=6",
+      (char*)"--empty_space_frame_interval=100",
       (char*)"--projective_frame_subsampling=7",
       (char*)"--color_frame_subsampling=8",
       (char*)"--mesh_frame_subsampling=9",
@@ -83,6 +84,7 @@ TEST(FuserTest, CommandLineFlags) {
   EXPECT_EQ(fuser->map_output_path_, "6");
 
   // Subsampling
+  EXPECT_EQ(fuser->empty_space_frame_interval_, 100);
   EXPECT_EQ(fuser->projective_frame_subsampling_, 7);
   EXPECT_EQ(fuser->color_frame_subsampling_, 8);
   EXPECT_EQ(fuser->mesh_frame_subsampling_, 9);

@@ -53,6 +53,29 @@ void setColorBlockGrayOnGPUAsync(ColorBlock* block_device_ptr,
   checkCudaErrors(cudaPeekAtLastError());
 }
 
+EmptySpaceBlock::Ptr EmptySpaceBlock::allocate(MemoryType memory_type) {
+  return allocateAsync(memory_type, CudaStreamOwning());
+}
+
+EmptySpaceBlock::Ptr EmptySpaceBlock::allocateAsync(
+    MemoryType memory_type, const CudaStream& cuda_stream) {
+  Ptr empty_block_ptr =
+      make_unified_async<EmptySpaceBlock>(memory_type, cuda_stream);
+  initAsync(empty_block_ptr.get(), memory_type, cuda_stream);
+
+  return empty_block_ptr;
+}
+
+void EmptySpaceBlock::initAsync(EmptySpaceBlock* block_ptr,
+                                const MemoryType memory_type,
+                                const CudaStream& cuda_stream) {
+  if (memory_type == MemoryType::kDevice) {
+    setBlockBytesZeroOnGPUAsync(block_ptr, cuda_stream);
+  } else {
+    *block_ptr = EmptySpaceBlock();
+  }
+}
+
 template <class BlockType>
 __global__ void initializeBlocksKernel(BlockType** block_ptrs, int num_blocks) {
   const int block_idx = blockIdx.x;
@@ -79,6 +102,16 @@ void initializeBlocksAsync(host_vector<BlockType*>& blocks,
   initializeBlocksKernel<BlockType>
       <<<num_blocks, threads_per_block, 0, cuda_stream>>>(blocks.data(),
                                                           blocks.size());
+}
+
+// Specialization for EmptySpaceBlock
+template <>
+void initializeBlocksAsync(host_vector<EmptySpaceBlock*>& blocks,
+                           const CudaStream& cuda_stream,
+                           const MemoryType memory_type) {
+  for (auto& ptr : blocks) {
+    EmptySpaceBlock::initAsync(ptr, memory_type, cuda_stream);
+  }
 }
 
 // Specialization for ColorMeshBlock

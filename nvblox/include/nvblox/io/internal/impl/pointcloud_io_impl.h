@@ -59,5 +59,41 @@ bool outputVoxelLayerToPly(
   return writer.write();
 }
 
+/// Outputs a block layer as a pointcloud with the lambda function deciding the
+/// intensity. Each block will be one point.
+template <typename BlockType>
+bool outputBlockLayerToPly(
+    const BlockLayer<BlockType>& layer, const std::string& filename,
+    std::function<bool(const BlockType* block, float* intensity)> lambda) {
+  // Create a ply writer objcet.
+  io::PlyWriter writer(filename);
+
+  // Combine all the blocks in the mesh into a pointcloud.
+  std::vector<Vector3f> points;
+  std::vector<float> intensities;
+
+  const float block_size = layer.block_size();
+
+  auto new_lambda = [&points, &intensities, &block_size, &lambda](
+                        const Index3D& block_index, const BlockType* block) {
+    float intensity = 0.0f;
+    if (lambda(block, &intensity)) {
+      points.push_back(
+          getCenterPositionFromBlockIndex(block_size, block_index));
+      intensities.push_back(intensity);
+    }
+  };
+
+  // Call above lambda on every block in the layer.
+  callFunctionOnAllBlocks<BlockType>(layer, new_lambda);
+
+  // Add the pointcloud to the ply writer.
+  writer.setPoints(&points);
+  writer.setIntensities(&intensities);
+
+  // Write out the ply.
+  return writer.write();
+}
+
 }  // namespace io
 }  // namespace nvblox

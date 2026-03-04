@@ -15,6 +15,7 @@ limitations under the License.
 */
 #pragma once
 
+#include "nvblox/integrators/empty_space_integrator.h"
 #include "nvblox/integrators/esdf_integrator.h"
 #include "nvblox/integrators/esdf_integrator_params.h"
 #include "nvblox/integrators/freespace_integrator.h"
@@ -47,6 +48,12 @@ constexpr Param<bool>::Description kExcludeLastViewFromDecayParamDesc{
     "Whether contributions from the last depth frame should be excluded when "
     "decaying"};
 
+// ======= EMPTY SPACE BLOCK CLEARING =======
+constexpr Param<bool>::Description kDoEmptySpaceClearingParamDesc{
+    "do_empty_space_clearing", false,
+    "Whether blocks marked empty in the empty space layer should be cleared "
+    "from the configured layers."};
+
 /// A structure containing the mapper parameters. This object can be used to set
 /// all parameters of a mapper.
 struct MapperParams {
@@ -54,6 +61,7 @@ struct MapperParams {
   Param<int> depth_preprocessing_num_dilations{
       kDepthPreprocessingNumDilationsParamDesc};
   Param<bool> exclude_last_view_from_decay{kExcludeLastViewFromDecayParamDesc};
+  Param<bool> do_empty_space_clearing{kDoEmptySpaceClearingParamDesc};
 
   EsdfIntegratorParams esdf_integrator_params;
   ProjectiveIntegratorParams projective_integrator_params;
@@ -64,6 +72,7 @@ struct MapperParams {
   DecayIntegratorBaseParams decay_integrator_base_params;
   OccupancyDecayIntegratorParams occupancy_decay_integrator_params;
   FreespaceIntegratorParams freespace_integrator_params;
+  EmptySpaceIntegratorParams empty_space_integrator_params;
 };
 
 }  // namespace nvblox
