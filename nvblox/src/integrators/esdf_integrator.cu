@@ -254,11 +254,13 @@ void EsdfIntegrator::integrateBlocksTemplate(
     CHECK_NOTNULL(empty_space_layer);
   }
 
+  // Move indices to device.
+  block_indices_device_.copyFromAsync(block_indices, *cuda_stream_);
+
   // First, allocate all the destination blocks.
   timing::Timer allocate_timer("esdf/integrate/allocate");
-  timing::Timer split_timer("esdf/integrate/split_block_indices");
   if (has_esdf_two_resolutions_) {
-    splitFullAndEmptyEsdfIndices(empty_space_layer, block_indices,
+    splitFullAndEmptyEsdfIndices(empty_space_layer, block_indices_device_,
                                  block_indices_full_esdf_device_,
                                  block_indices_empty_esdf_device_);
 
@@ -266,22 +268,21 @@ void EsdfIntegrator::integrateBlocksTemplate(
                                                 *cuda_stream_);
     block_indices_empty_esdf_host_.copyFromAsync(
         block_indices_empty_esdf_device_, *cuda_stream_);
+    cuda_stream_->synchronize();
+
+    allocateBlocksOnCPU(block_indices_full_esdf_host_, esdf_layer);
+    allocateBlocksOnCPU(block_indices_empty_esdf_host_, empty_esdf_layer);
   } else {
     block_indices_empty_esdf_host_.resizeAsync(0, *cuda_stream_);
-    block_indices_full_esdf_host_.copyFromAsync(block_indices, *cuda_stream_);
+    allocateBlocksOnCPU(block_indices, esdf_layer);
   }
-  split_timer.Stop();
 
-  allocateBlocksOnCPU(block_indices_full_esdf_host_, esdf_layer);
-  if (empty_esdf_layer != nullptr) {
-    allocateBlocksOnCPU(block_indices_empty_esdf_host_, empty_esdf_layer);
-  }
   allocate_timer.Stop();
 
   timing::Timer mark_timer("esdf/integrate/mark_sites");
   // Then, mark all the sites on GPU.
   // This finds all the blocks that are eligible to be parents.
-  markAllSites(layer, block_indices, freespace_layer_ptr, esdf_layer,
+  markAllSites(layer, block_indices_device_, freespace_layer_ptr, esdf_layer,
                &updated_indices_device_, &to_clear_indices_device_);
   mark_timer.Stop();
 
@@ -488,7 +489,7 @@ __global__ void splitFullAndEmptyEsdfIndicesKernel(
 
 void EsdfIntegrator::splitFullAndEmptyEsdfIndices(
     const EmptySpaceLayer* empty_space_layer,
-    const std::vector<Index3D>& block_indices,
+    const device_vector<Index3D>& block_indices,
     device_vector<Index3D>& block_indices_full,
     device_vector<Index3D>& block_indices_empty) {
   const int num_blocks = block_indices.size();
@@ -868,7 +869,7 @@ TsdfSiteFunctor EsdfIntegrator::getSiteFunctor(const TsdfLayer& layer) {
 
 template <typename LayerType>
 void EsdfIntegrator::markAllSites(const LayerType& layer,
-                                  const std::vector<Index3D>& block_indices,
+                                  device_vector<Index3D>& block_indices,
                                   const FreespaceLayer* freespace_layer_ptr,
                                   EsdfLayer* esdf_layer,
                                   device_vector<Index3D>* blocks_with_sites,
@@ -888,7 +889,6 @@ void EsdfIntegrator::markAllSites(const LayerType& layer,
 
   int num_blocks = block_indices.size();
 
-  block_indices_device_.copyFromAsync(block_indices, *cuda_stream_);
   blocks_with_sites->resizeAsync(num_blocks, *cuda_stream_);
   cleared_blocks->resizeAsync(num_blocks, *cuda_stream_);
   updated_counter_device_.setZeroAsync(*cuda_stream_);
@@ -914,15 +914,15 @@ void EsdfIntegrator::markAllSites(const LayerType& layer,
   dim3 dim_threads(kVoxelsPerSide, kVoxelsPerSide, kVoxelsPerSide);
   // Call kernel, passing functor
   markAllSitesKernel<<<dim_block, dim_threads, 0, *cuda_stream_>>>(
-      num_blocks, block_indices_device_.data(),  // NOLINT
-      input_layer_view.getHash().impl_,          // NOLINT
-      freespace_hash_map,                        // NOLINT
-      esdf_layer_view.getHash().impl_,           // NOLINT
-      site_functor,                              // NOLINT
-      max_squared_esdf_distance_vox,             // NOLINT
-      blocks_with_sites->data(),                 // NOLINT
-      updated_counter_device_.get(),             // NOLINT
-      cleared_blocks->data(),                    // NOLINT
+      num_blocks, block_indices.data(),  // NOLINT
+      input_layer_view.getHash().impl_,  // NOLINT
+      freespace_hash_map,                // NOLINT
+      esdf_layer_view.getHash().impl_,   // NOLINT
+      site_functor,                      // NOLINT
+      max_squared_esdf_distance_vox,     // NOLINT
+      blocks_with_sites->data(),         // NOLINT
+      updated_counter_device_.get(),     // NOLINT
+      cleared_blocks->data(),            // NOLINT
       cleared_counter_device_.get());
 
   checkCudaErrors(cudaPeekAtLastError());

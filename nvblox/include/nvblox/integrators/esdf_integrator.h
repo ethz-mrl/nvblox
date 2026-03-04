@@ -329,7 +329,7 @@ class EsdfIntegrator {
   /// block_indices_full, respectively.
   void splitFullAndEmptyEsdfIndices(
       const EmptySpaceLayer* empty_space_layer,
-      const std::vector<Index3D>& block_indices,
+      const device_vector<Index3D>& block_indices,
       device_vector<Index3D>& block_indices_full,
       device_vector<Index3D>& block_indices_empty);
 
@@ -339,7 +339,7 @@ class EsdfIntegrator {
 
   template <typename LayerType>
   void markAllSites(const LayerType& layer,
-                    const std::vector<Index3D>& block_indices,
+                    device_vector<Index3D>& block_indices,
                     const FreespaceLayer* freespace_layer_ptr,
                     EsdfLayer* esdf_layer,
                     device_vector<Index3D>* blocks_with_sites,

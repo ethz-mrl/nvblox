@@ -1156,9 +1156,14 @@ TEST(EsdfIntegratorHelpers, EmptySpaceIndexSplitter) {
   // Update empty space layer.
   mapper.updateEmptySpace(UpdateFullLayer::kYes);
 
+  // All block indices on device.
+  device_vector<Index3D> all_empty_space_layer_blocks_device;
+  all_empty_space_layer_blocks_device.copyFromAsync(
+      mapper.empty_space_layer().getAllBlockIndices(), cuda_stream);
+  cuda_stream.synchronize();
+
   mapper.esdf_integrator().splitFullAndEmptyEsdfIndices(
-      &mapper.empty_space_layer(),
-      mapper.empty_space_layer().getAllBlockIndices(),
+      &mapper.empty_space_layer(), all_empty_space_layer_blocks_device,
       mapper.esdf_integrator().block_indices_full_esdf_device_,
       mapper.esdf_integrator().block_indices_empty_esdf_device_);
 

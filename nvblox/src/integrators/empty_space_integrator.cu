@@ -284,7 +284,8 @@ std::vector<Index3D> EmptySpaceIntegrator::getIndicesOfAllBlocksMarkedEmpty(
   const int num_thread_blocks =
       (num_block_indices_to_consider + kNumThreads - 1) / kNumThreads;
 
-  getIndicesOfAllBlocksMarkedEmptyKernel<<<num_thread_blocks, kNumThreads>>>(
+  getIndicesOfAllBlocksMarkedEmptyKernel<<<num_thread_blocks, kNumThreads, 0,
+                                           *cuda_stream_>>>(
       block_indices_to_update_device_.size(),
       block_indices_to_update_device_.data(),
       empty_space_blocks_to_update_device_.data(), output_indices_device.data(),
