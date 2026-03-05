@@ -77,11 +77,9 @@ class EsdfIntegrator {
   /// @param block_indices The indices of the EsdfLayer which should be updated
   /// (usually because the Occupancy at these indices has changed).
   /// @param[out] esdf_layer The output EsdfLayer
-  virtual void integrateBlocks(
-      const OccupancyLayer& occupancy_layer,
-      const std::vector<Index3D>& block_indices, EsdfLayer* esdf_layer,
-      EmptyEsdfLayer* empty_esdf_layer = nullptr,
-      const EmptySpaceLayer* empty_space_layer = nullptr);
+  virtual void integrateBlocks(const OccupancyLayer& occupancy_layer,
+                               const std::vector<Index3D>& block_indices,
+                               EsdfLayer* esdf_layer);
 
   /// Build an EsdfLayer slice from a TsdfLayer (incremental) (on GPU)
   /// This function takes the voxels between z_min and z_max in the TsdfLayer.

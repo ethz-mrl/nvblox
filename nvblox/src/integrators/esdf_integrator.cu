@@ -334,12 +334,9 @@ void EsdfIntegrator::integrateBlocks(const TsdfLayer& tsdf_layer,
 
 void EsdfIntegrator::integrateBlocks(const OccupancyLayer& occupancy_layer,
                                      const std::vector<Index3D>& block_indices,
-                                     EsdfLayer* esdf_layer,
-                                     EmptyEsdfLayer* empty_esdf_layer,
-                                     const EmptySpaceLayer* empty_space_layer) {
+                                     EsdfLayer* esdf_layer) {
   integrateBlocksTemplate<OccupancyLayer>(occupancy_layer, block_indices,
-                                          esdf_layer, empty_esdf_layer,
-                                          empty_space_layer);
+                                          esdf_layer);
 }
 
 template <typename LayerType, typename SliceDescriptionType>

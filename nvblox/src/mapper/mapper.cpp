@@ -784,10 +784,9 @@ void Mapper::updateEsdf(UpdateFullLayer update_full_layer) {
         layers_.get<TsdfLayer>(), blocks_to_update, layers_.getPtr<EsdfLayer>(),
         layers_.getPtr<EmptyEsdfLayer>(), layers_.getPtr<EmptySpaceLayer>());
   } else if (projective_layer_type_ == ProjectiveLayerType::kOccupancy) {
-    esdf_integrator_.integrateBlocks(
-        layers_.get<OccupancyLayer>(), blocks_to_update,
-        layers_.getPtr<EsdfLayer>(), layers_.getPtr<EmptyEsdfLayer>(),
-        layers_.getPtr<EmptySpaceLayer>());
+    esdf_integrator_.integrateBlocks(layers_.get<OccupancyLayer>(),
+                                     blocks_to_update,
+                                     layers_.getPtr<EsdfLayer>());
   }
 
   // Mark blocks as updated
@@ -975,6 +974,10 @@ void Mapper::clearBlocksInLayers(const std::vector<Index3D>& blocks_to_clear) {
     // In the 3D case this is easy.
     layers_.getPtr<EsdfLayer>()->clearBlocksAsync(blocks_to_clear,
                                                   *cuda_stream_);
+    if (esdf_integrator_.has_esdf_two_resolutions()) {
+      layers_.getPtr<EmptyEsdfLayer>()->clearBlocksAsync(blocks_to_clear,
+                                                         *cuda_stream_);
+    }
   } else {
     // In the 2D case we need to check if an occupancy/tsdf block is left in the
     // vertical column (z-axis) for every 2d esdf block.
