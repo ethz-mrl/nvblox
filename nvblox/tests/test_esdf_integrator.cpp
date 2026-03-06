@@ -35,8 +35,6 @@ limitations under the License.
 
 using namespace nvblox;
 
-constexpr float kFloatEpsilon = 1e-4;
-
 // Have various obstacles that the ESDF can try to navigate around.
 enum class Obstacle {
   kAxisAlignedPlane,  // 0
@@ -47,16 +45,20 @@ enum class Obstacle {
   kBoxWithCube        // 5
 };
 
-class EsdfIntegratorTest : public ::testing::TestWithParam<Obstacle> {
+class EsdfTestCommon : public ::testing::Test {
  protected:
-  void SetUp() override;
+  void SetUp() override {
+    std::srand(0);
+
+    block_size_ = VoxelBlock<bool>::kVoxelsPerSide * voxel_size_;
+
+    esdf_integrator_.max_esdf_distance_m(max_esdf_distance_m_);
+    esdf_integrator_.min_weight(1.0f);
+
+    camera_.reset(new Camera(300, 300, 320, 240, 640, 480));
+  };
 
   void addParameterizedObstacleToScene(const Obstacle& obstacle);
-
-  bool outputFlatSliceEsdfAsPly(const EsdfLayer& layer,
-                                const std::string& ply_path, float height);
-  bool outputFlatSliceTsdfAsPly(const TsdfLayer& layer,
-                                const std::string& ply_path, float height);
 
   // Returns PERCENTAGE ABOVE THRESHOLD
   float compareEsdfToGt(const EsdfLayer& esdf_layer, const TsdfLayer& gt_layer,
@@ -72,13 +74,51 @@ class EsdfIntegratorTest : public ::testing::TestWithParam<Obstacle> {
   bool validateEsdf(const EsdfLayer& esdf_layer,
                     float max_squared_distance_vox);
 
-  float max_squared_distance_vox(float voxel_size) const;
-
   float block_size_;
   float voxel_size_ = 0.10f;
-  float max_distance_ = 4.0f;
+  float max_esdf_distance_m_ = 4.0f;
   float very_small_cutoff_ = 2e-3f;
   float small_cutoff_ = 2e-2f;
+
+  EsdfIntegrator esdf_integrator_;
+
+  // A simulation scene.
+  primitives::Scene scene_;
+
+  // Camera and TSDF parameters for incremental integration.
+  std::shared_ptr<Camera> camera_;
+  ProjectiveTsdfIntegrator tsdf_integrator_;
+};
+
+class EsdfIntegratorTest : public EsdfTestCommon,
+                           public testing::WithParamInterface<Obstacle> {
+ protected:
+  void SetUp() override {
+    EsdfTestCommon::SetUp();
+    timing::Timing::Reset();
+
+    tsdf_layer_.reset(new TsdfLayer(voxel_size_, MemoryType::kUnified));
+    gt_sdf_layer_.reset(new TsdfLayer(voxel_size_, MemoryType::kUnified));
+    esdf_layer_.reset(new EsdfLayer(voxel_size_, MemoryType::kUnified));
+    occupancy_layer_.reset(
+        new OccupancyLayer(voxel_size_, MemoryType::kUnified));
+    occupancy_esdf_layer_.reset(
+        new EsdfLayer(voxel_size_, MemoryType::kUnified));
+    freespace_layer_.reset(
+        new FreespaceLayer(voxel_size_, MemoryType::kUnified));
+    freespace_esdf_layer_.reset(
+        new EsdfLayer(voxel_size_, MemoryType::kUnified));
+    slice_esdf_layer_.reset(new EsdfLayer(voxel_size_, MemoryType::kUnified));
+    freespace_slice_esdf_layer_.reset(
+        new EsdfLayer(voxel_size_, MemoryType::kUnified));
+  };
+
+  bool outputFlatSliceEsdfAsPly(const EsdfLayer& layer,
+                                const std::string& ply_path, float height);
+  bool outputFlatSliceTsdfAsPly(const TsdfLayer& layer,
+                                const std::string& ply_path, float height);
+
+  float max_squared_distance_vox(float voxel_size) const;
 
   TsdfLayer::Ptr tsdf_layer_;
   TsdfLayer::Ptr gt_sdf_layer_;
@@ -90,40 +130,17 @@ class EsdfIntegratorTest : public ::testing::TestWithParam<Obstacle> {
   EsdfLayer::Ptr slice_esdf_layer_;
   EsdfLayer::Ptr freespace_slice_esdf_layer_;
 
-  EsdfIntegrator esdf_integrator_;
   EsdfSlicer esdf_slicer_;
-  // A simulation scene.
-  primitives::Scene scene_;
-
-  // Camera and TSDF parameters for incremental integration.
-  std::shared_ptr<Camera> camera_;
-  ProjectiveTsdfIntegrator tsdf_integrator_;
 };
 
-void EsdfIntegratorTest::SetUp() {
-  timing::Timing::Reset();
-  std::srand(0);
-  block_size_ = VoxelBlock<bool>::kVoxelsPerSide * voxel_size_;
+class TwoResEsdfIntegratorTest
+    : public EsdfTestCommon,
+      public ::testing::WithParamInterface<Obstacle> {
+ protected:
+  void SetUp() override { EsdfTestCommon::SetUp(); };
+};
 
-  tsdf_layer_.reset(new TsdfLayer(voxel_size_, MemoryType::kUnified));
-  gt_sdf_layer_.reset(new TsdfLayer(voxel_size_, MemoryType::kUnified));
-  esdf_layer_.reset(new EsdfLayer(voxel_size_, MemoryType::kUnified));
-  occupancy_layer_.reset(new OccupancyLayer(voxel_size_, MemoryType::kUnified));
-  occupancy_esdf_layer_.reset(new EsdfLayer(voxel_size_, MemoryType::kUnified));
-  freespace_layer_.reset(new FreespaceLayer(voxel_size_, MemoryType::kUnified));
-  freespace_esdf_layer_.reset(new EsdfLayer(voxel_size_, MemoryType::kUnified));
-  slice_esdf_layer_.reset(new EsdfLayer(voxel_size_, MemoryType::kUnified));
-  freespace_slice_esdf_layer_.reset(
-      new EsdfLayer(voxel_size_, MemoryType::kUnified));
-
-  esdf_integrator_.max_esdf_distance_m(max_distance_);
-  esdf_integrator_.min_weight(1.0f);
-
-  camera_.reset(new Camera(300, 300, 320, 240, 640, 480));
-}
-
-void EsdfIntegratorTest::addParameterizedObstacleToScene(
-    const Obstacle& obstacle) {
+void EsdfTestCommon::addParameterizedObstacleToScene(const Obstacle& obstacle) {
   if (obstacle == Obstacle::kBox || obstacle == Obstacle::kBoxWithCube ||
       obstacle == Obstacle::kBoxWithSphere) {
     scene_.aabb() = AxisAlignedBoundingBox(Vector3f(-5.5f, -5.5f, -0.5f),
@@ -165,85 +182,7 @@ void EsdfIntegratorTest::addParameterizedObstacleToScene(
   };
 }
 
-bool EsdfIntegratorTest::outputFlatSliceEsdfAsPly(const EsdfLayer& layer,
-                                                  const std::string& ply_path,
-                                                  float height) {
-  // Create a ply writer object.
-  io::PlyWriter writer(ply_path);
-
-  // Combine all the voxels in the mesh into a pointcloud.
-  std::vector<Vector3f> points;
-  std::vector<float> distances;
-
-  const float block_size = layer.block_size();
-  const float voxel_size = layer.voxel_size();
-
-  auto lambda = [&points, &distances, &block_size, &voxel_size, &height](
-                    const Index3D& block_index, const Index3D& voxel_index,
-                    const EsdfVoxel* voxel) {
-    if (voxel->observed) {
-      Vector3f position = getCenterPositionFromBlockIndexAndVoxelIndex(
-          block_size, block_index, voxel_index);
-      if (position.z() - height < voxel_size && position.z() >= height) {
-        points.push_back(position);
-        float distance = voxel_size * std::sqrt(voxel->squared_distance_vox);
-        if (voxel->is_inside) {
-          distance = -distance;
-        }
-        distances.push_back(distance);
-      }
-    }
-  };
-
-  // Call above lambda on every voxel in the layer.
-  callFunctionOnAllVoxels<EsdfVoxel>(layer, lambda);
-
-  // Add the pointcloud to the ply writer.
-  writer.setPoints(&points);
-  writer.setIntensities(&distances);
-
-  // Write out the ply.
-  return writer.write();
-}
-
-bool EsdfIntegratorTest::outputFlatSliceTsdfAsPly(const TsdfLayer& layer,
-                                                  const std::string& ply_path,
-                                                  float height) {
-  // Create a ply writer object.
-  io::PlyWriter writer(ply_path);
-
-  // Combine all the voxels in the mesh into a pointcloud.
-  std::vector<Vector3f> points;
-  std::vector<float> distances;
-
-  const float block_size = layer.block_size();
-  const float voxel_size = layer.voxel_size();
-
-  auto lambda = [&points, &distances, &block_size, &voxel_size, &height](
-                    const Index3D& block_index, const Index3D& voxel_index,
-                    const TsdfVoxel* voxel) {
-    if (voxel->weight > 1e-4f) {
-      Vector3f position = getCenterPositionFromBlockIndexAndVoxelIndex(
-          block_size, block_index, voxel_index);
-      if (position.z() - height < voxel_size && position.z() >= height) {
-        points.push_back(position);
-        distances.push_back(voxel->distance);
-      }
-    }
-  };
-
-  // Call above lambda on every voxel in the layer.
-  callFunctionOnAllVoxels<TsdfVoxel>(layer, lambda);
-
-  // Add the pointcloud to the ply writer.
-  writer.setPoints(&points);
-  writer.setIntensities(&distances);
-
-  // Write out the ply.
-  return writer.write();
-}
-
-float EsdfIntegratorTest::compareEsdfToGt(
+float EsdfTestCommon::compareEsdfToGt(
     const EsdfLayer& esdf_layer, const TsdfLayer& gt_layer,
     float error_threshold, bool test_voxels_with_negative_gt_distance) {
   // Compare the layers
@@ -288,7 +227,7 @@ float EsdfIntegratorTest::compareEsdfToGt(
          total_num_voxels_observed;
 }
 
-float EsdfIntegratorTest::compareEsdfToEsdf(
+float EsdfTestCommon::compareEsdfToEsdf(
     const EsdfLayer& esdf_layer, const EsdfLayer& gt_layer,
     float error_threshold, bool test_voxels_with_negative_gt_distance) {
   // Compare the layers
@@ -337,8 +276,8 @@ float EsdfIntegratorTest::compareEsdfToEsdf(
          total_num_voxels_observed;
 }
 
-bool EsdfIntegratorTest::validateEsdf(const EsdfLayer& esdf_layer,
-                                      float max_squared_distance_vox) {
+bool EsdfTestCommon::validateEsdf(const EsdfLayer& esdf_layer,
+                                  float max_squared_distance_vox) {
   constexpr float kTolerance = 1e-4;
   constexpr int kVoxelsPerSide = VoxelBlock<TsdfVoxel>::kVoxelsPerSide;
   for (const Index3D& block_index : esdf_layer.getAllBlockIndices()) {
@@ -460,6 +399,84 @@ bool EsdfIntegratorTest::validateEsdf(const EsdfLayer& esdf_layer,
   return true;
 }
 
+bool EsdfIntegratorTest::outputFlatSliceEsdfAsPly(const EsdfLayer& layer,
+                                                  const std::string& ply_path,
+                                                  float height) {
+  // Create a ply writer object.
+  io::PlyWriter writer(ply_path);
+
+  // Combine all the voxels in the mesh into a pointcloud.
+  std::vector<Vector3f> points;
+  std::vector<float> distances;
+
+  const float block_size = layer.block_size();
+  const float voxel_size = layer.voxel_size();
+
+  auto lambda = [&points, &distances, &block_size, &voxel_size, &height](
+                    const Index3D& block_index, const Index3D& voxel_index,
+                    const EsdfVoxel* voxel) {
+    if (voxel->observed) {
+      Vector3f position = getCenterPositionFromBlockIndexAndVoxelIndex(
+          block_size, block_index, voxel_index);
+      if (position.z() - height < voxel_size && position.z() >= height) {
+        points.push_back(position);
+        float distance = voxel_size * std::sqrt(voxel->squared_distance_vox);
+        if (voxel->is_inside) {
+          distance = -distance;
+        }
+        distances.push_back(distance);
+      }
+    }
+  };
+
+  // Call above lambda on every voxel in the layer.
+  callFunctionOnAllVoxels<EsdfVoxel>(layer, lambda);
+
+  // Add the pointcloud to the ply writer.
+  writer.setPoints(&points);
+  writer.setIntensities(&distances);
+
+  // Write out the ply.
+  return writer.write();
+}
+
+bool EsdfIntegratorTest::outputFlatSliceTsdfAsPly(const TsdfLayer& layer,
+                                                  const std::string& ply_path,
+                                                  float height) {
+  // Create a ply writer object.
+  io::PlyWriter writer(ply_path);
+
+  // Combine all the voxels in the mesh into a pointcloud.
+  std::vector<Vector3f> points;
+  std::vector<float> distances;
+
+  const float block_size = layer.block_size();
+  const float voxel_size = layer.voxel_size();
+
+  auto lambda = [&points, &distances, &block_size, &voxel_size, &height](
+                    const Index3D& block_index, const Index3D& voxel_index,
+                    const TsdfVoxel* voxel) {
+    if (voxel->weight > 1e-4f) {
+      Vector3f position = getCenterPositionFromBlockIndexAndVoxelIndex(
+          block_size, block_index, voxel_index);
+      if (position.z() - height < voxel_size && position.z() >= height) {
+        points.push_back(position);
+        distances.push_back(voxel->distance);
+      }
+    }
+  };
+
+  // Call above lambda on every voxel in the layer.
+  callFunctionOnAllVoxels<TsdfVoxel>(layer, lambda);
+
+  // Add the pointcloud to the ply writer.
+  writer.setPoints(&points);
+  writer.setIntensities(&distances);
+
+  // Write out the ply.
+  return writer.write();
+}
+
 float EsdfIntegratorTest::max_squared_distance_vox(float voxel_size) const {
   const float max_distance_m = esdf_integrator_.max_esdf_distance_m();
   return max_distance_m * max_distance_m / (voxel_size * voxel_size);
@@ -472,12 +489,12 @@ TEST_P(EsdfIntegratorTest, SingleEsdfTestCPU) {
   // Generate a TSDF
   scene_.generateLayerFromScene(4 * voxel_size_, tsdf_layer_.get());
   // Get the full ground truth ESDF
-  scene_.generateLayerFromScene(max_distance_, gt_sdf_layer_.get());
+  scene_.generateLayerFromScene(max_esdf_distance_m_, gt_sdf_layer_.get());
 
   // Actually run the ESDF generation.
   std::vector<Index3D> block_indices = tsdf_layer_->getAllBlockIndices();
   EsdfIntegratorCPU esdf_integrator_cpu;
-  esdf_integrator_cpu.max_esdf_distance_m(max_distance_);
+  esdf_integrator_cpu.max_esdf_distance_m(max_esdf_distance_m_);
   esdf_integrator_cpu.min_weight(1.0f);
   esdf_integrator_cpu.integrateBlocks(*tsdf_layer_, block_indices,
                                       esdf_layer_.get());
@@ -516,7 +533,7 @@ TEST_P(EsdfIntegratorTest, SingleEsdfTestGPU) {
   // Generate a TSDF
   scene_.generateLayerFromScene(4 * voxel_size_, tsdf_layer_.get());
   // Get the full ground truth ESDF
-  scene_.generateLayerFromScene(max_distance_, gt_sdf_layer_.get());
+  scene_.generateLayerFromScene(max_esdf_distance_m_, gt_sdf_layer_.get());
 
   // Actually run the ESDF generation.
   std::vector<Index3D> block_indices = tsdf_layer_->getAllBlockIndices();
@@ -560,7 +577,7 @@ TEST_P(EsdfIntegratorTest, OccupancySingleEsdfTestGPU) {
   scene_.generateLayerFromScene(4 * voxel_size_, occupancy_layer_.get());
 
   // Get the full ground truth ESDF
-  scene_.generateLayerFromScene(max_distance_, gt_sdf_layer_.get());
+  scene_.generateLayerFromScene(max_esdf_distance_m_, gt_sdf_layer_.get());
 
   // Actually run the ESDF generation.
   std::vector<Index3D> block_indices = occupancy_layer_->getAllBlockIndices();
@@ -609,7 +626,7 @@ TEST_P(EsdfIntegratorTest, AllFreespaceTest) {
                                               Vector3f(5.5f, 5.5f, 5.5f));
   empty_scene.generateLayerFromScene(4 * voxel_size_, freespace_layer_.get());
   // The groundtruth layer is empty as well.
-  empty_scene.generateLayerFromScene(max_distance_, gt_sdf_layer_.get());
+  empty_scene.generateLayerFromScene(max_esdf_distance_m_, gt_sdf_layer_.get());
 
   // Run the ESDF generation with an empty freespace layer.
   const float esdf_slice_min_height = 1.0f;
@@ -730,7 +747,7 @@ TEST_P(EsdfIntegratorTest, ComplexSceneWithTsdf) {
   addParameterizedObstacleToScene(obstacle);
 
   // Get the ground truth SDF for it.
-  scene_.generateLayerFromScene(max_distance_, gt_sdf_layer_.get());
+  scene_.generateLayerFromScene(max_esdf_distance_m_, gt_sdf_layer_.get());
 
   // Set up the integrator.
   tsdf_integrator_.max_integration_distance_m(kMaxDist);
@@ -916,7 +933,7 @@ TEST_P(EsdfIntegratorTest, IncrementalEsdf2DWithObjectRemoval) {
   scene_.aabb() = aabb;
 
   // Get the ground truth SDF for it.
-  scene_.generateLayerFromScene(max_distance_, tsdf_layer_.get());
+  scene_.generateLayerFromScene(max_esdf_distance_m_, tsdf_layer_.get());
 
   for (size_t i = 0; i < 2; i++) {
     if (i == 1) {
@@ -925,7 +942,7 @@ TEST_P(EsdfIntegratorTest, IncrementalEsdf2DWithObjectRemoval) {
       scene_.clear();
       addParameterizedObstacleToScene(Obstacle::kBox);
       scene_.aabb() = aabb;
-      scene_.generateLayerFromScene(max_distance_, tsdf_layer_.get());
+      scene_.generateLayerFromScene(max_esdf_distance_m_, tsdf_layer_.get());
     }
 
     // Get all blocks from the tsdf layer.
@@ -1071,7 +1088,7 @@ TEST_P(EsdfIntegratorTest, IncrementalEsdfWithObjectRemoval) {
   addParameterizedObstacleToScene(obstacle);
 
   // Get the ground truth SDF for it.
-  scene_.generateLayerFromScene(max_distance_, tsdf_layer_.get());
+  scene_.generateLayerFromScene(max_esdf_distance_m_, tsdf_layer_.get());
 
   for (size_t i = 0; i < 2; i++) {
     if (i == 1) {
@@ -1079,7 +1096,7 @@ TEST_P(EsdfIntegratorTest, IncrementalEsdfWithObjectRemoval) {
       scene_.clear();
       addParameterizedObstacleToScene(Obstacle::kBox);
 
-      scene_.generateLayerFromScene(max_distance_, tsdf_layer_.get());
+      scene_.generateLayerFromScene(max_esdf_distance_m_, tsdf_layer_.get());
     }
 
     // Get all blocks from the tsdf layer.
@@ -1123,7 +1140,7 @@ INSTANTIATE_TEST_CASE_P(
                       Obstacle::kSphereOrigin, Obstacle::kBox,
                       Obstacle::kBoxWithSphere, Obstacle::kBoxWithCube));
 
-TEST(EsdfIntegratorHelpers, EmptySpaceIndexSplitter) {
+TEST(TwoResIntegratorHelperTest, EmptySpaceIndexSplitter) {
   // Helper class to expose protected members.
   class PublicEsdfIntegrator : public EsdfIntegrator {
    public:
@@ -1197,68 +1214,60 @@ TEST(EsdfIntegratorHelpers, EmptySpaceIndexSplitter) {
   }
 }
 
-TEST(EsdfIntegratorHelpers, TwoResolutionEsdfClearingKeepsCorrectField) {
-  constexpr float kVoxelSizeM = 0.2f;
-  constexpr float kTsdfTruncationDistanceM = 4.0f * kVoxelSizeM;
-  constexpr float kMaxEsdfDistanceM = 4.0f;
-  constexpr float kAcceptableErrorM = 0.0f;
-
-  // Build a scene where an interior obstacle is removed.
-  primitives::Scene scene_with_obstacle;
-  scene_with_obstacle.aabb() = AxisAlignedBoundingBox(
-      Vector3f(-5.5f, -5.5f, -0.5f), Vector3f(5.5f, 5.5f, 5.5f));
-  scene_with_obstacle.addPlaneBoundaries(-5.0f, 5.0f, -5.0f, 5.0f);
-  scene_with_obstacle.addGroundLevel(0.0f);
-  scene_with_obstacle.addCeiling(5.0f);
-  scene_with_obstacle.addPrimitive(
-      std::make_unique<primitives::Sphere>(Vector3f(0.0f, 0.0f, 2.0f), 1.25f));
-
-  primitives::Scene scene_without_obstacle;
-  scene_without_obstacle.aabb() = AxisAlignedBoundingBox(
-      Vector3f(-5.5f, -5.5f, -0.5f), Vector3f(5.5f, 5.5f, 5.5f));
-  scene_without_obstacle.addPlaneBoundaries(-5.0f, 5.0f, -5.0f, 5.0f);
-  scene_without_obstacle.addGroundLevel(0.0f);
-  scene_without_obstacle.addCeiling(5.0f);
-
+TEST_P(TwoResEsdfIntegratorTest, TwoResolutionEsdfClearingKeepsCorrectField) {
+  Obstacle obstacle = GetParam();
+  // Only box-type obstacles have the room setup needed for this test.
+  if (obstacle != Obstacle::kBoxWithSphere &&
+      obstacle != Obstacle::kBoxWithCube && obstacle != Obstacle::kBox) {
+    return;
+  }
   // Reference mapper: regular ESDF.
-  Mapper reference_mapper(kVoxelSizeM, MemoryType::kUnified,
+  Mapper reference_mapper(voxel_size_, MemoryType::kUnified,
                           ProjectiveLayerType::kTsdf);
   MapperParams reference_params;
   reference_params.do_empty_space_clearing = false;
   reference_params.esdf_integrator_params.has_esdf_two_resolutions = false;
   reference_mapper.setMapperParams(reference_params);
-  reference_mapper.esdf_integrator().max_esdf_distance_m(kMaxEsdfDistanceM);
+  reference_mapper.esdf_integrator().max_esdf_distance_m(max_esdf_distance_m_);
 
   // Two-res mapper: two-resolution ESDF + empty-space clearing.
-  Mapper two_res_mapper(kVoxelSizeM, MemoryType::kUnified,
+  Mapper two_res_mapper(voxel_size_, MemoryType::kUnified,
                         ProjectiveLayerType::kTsdf);
   MapperParams two_res_params;
   two_res_params.do_empty_space_clearing = true;
   two_res_params.esdf_integrator_params.has_esdf_two_resolutions = true;
   two_res_mapper.setMapperParams(two_res_params);
-  two_res_mapper.esdf_integrator().max_esdf_distance_m(kMaxEsdfDistanceM);
+  two_res_mapper.esdf_integrator().max_esdf_distance_m(max_esdf_distance_m_);
 
-  // Two-step update to exercise obstacle removal.
-  std::vector<const primitives::Scene*> sequence = {&scene_with_obstacle,
-                                                    &scene_without_obstacle};
-  for (const primitives::Scene* scene_ptr : sequence) {
-    scene_ptr->generateLayerFromScene(kTsdfTruncationDistanceM,
-                                      &reference_mapper.tsdf_layer());
-    scene_ptr->generateLayerFromScene(kTsdfTruncationDistanceM,
-                                      &two_res_mapper.tsdf_layer());
-
+  // Two-step update: first with obstacle, then with just the box room.
+  for (size_t i = 0; i < 2; i++) {
+    if (i == 0) {
+      addParameterizedObstacleToScene(obstacle);
+    } else {
+      scene_.clear();
+      addParameterizedObstacleToScene(Obstacle::kBox);
+    }
+    scene_.generateLayerFromScene(max_esdf_distance_m_,
+                                  &reference_mapper.tsdf_layer());
+    scene_.generateLayerFromScene(max_esdf_distance_m_,
+                                  &two_res_mapper.tsdf_layer());
     // generateLayerFromScene does not add blocks to tracker.
     reference_mapper.markBlocksForUpdate(
         reference_mapper.tsdf_layer().getAllBlockIndices());
     two_res_mapper.markBlocksForUpdate(
         two_res_mapper.tsdf_layer().getAllBlockIndices());
 
-    // Reference path.
     reference_mapper.updateEsdf();
 
-    // Two-resolution path.
     two_res_mapper.updateEmptySpace();
     two_res_mapper.updateEsdf();
+
+    // Compare ESDF values against the reference on the surviving full blocks.
+    // This only checks the remaining esdf blocks, not the empty esdf values.
+    EXPECT_EQ(
+        compareEsdfToEsdf(two_res_mapper.esdf_layer(),
+                          reference_mapper.esdf_layer(), 0.2 * voxel_size_),
+        0.0f);
   }
 
   // Identify empty blocks from the final map state.
@@ -1274,53 +1283,12 @@ TEST(EsdfIntegratorHelpers, TwoResolutionEsdfClearingKeepsCorrectField) {
     EXPECT_FALSE(two_res_mapper.esdf_layer().isBlockAllocated(idx));
     EXPECT_TRUE(two_res_mapper.empty_esdf_layer().isBlockAllocated(idx));
   }
-
-  // Compare ESDF values against the reference on the surviving full blocks.
-  int total_num_voxels_observed = 0;
-  int num_voxels_over_threshold = 0;
-  for (const Index3D& block_index :
-       two_res_mapper.esdf_layer().getAllBlockIndices()) {
-    const auto block_two_res =
-        two_res_mapper.esdf_layer().getBlockAtIndex(block_index);
-    const auto block_reference =
-        reference_mapper.esdf_layer().getBlockAtIndex(block_index);
-    ASSERT_FALSE(!block_two_res);
-    ASSERT_FALSE(!block_reference);
-    for (int x = 0; x < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; x++) {
-      for (int y = 0; y < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; y++) {
-        for (int z = 0; z < VoxelBlock<TsdfVoxel>::kVoxelsPerSide; z++) {
-          const EsdfVoxel& voxel_two_res = block_two_res->voxels[x][y][z];
-          const EsdfVoxel& voxel_reference = block_reference->voxels[x][y][z];
-          if (!voxel_two_res.observed && !voxel_reference.observed) {
-            continue;
-          }
-
-          float distance_two_res =
-              two_res_mapper.esdf_layer().voxel_size() *
-              std::sqrt(voxel_two_res.squared_distance_vox);
-          if (voxel_two_res.is_inside) {
-            distance_two_res = -distance_two_res;
-          }
-
-          float distance_reference =
-              reference_mapper.esdf_layer().voxel_size() *
-              std::sqrt(voxel_reference.squared_distance_vox);
-          if (voxel_reference.is_inside) {
-            distance_reference = -distance_reference;
-          }
-
-          ++total_num_voxels_observed;
-          if (std::abs(distance_two_res - distance_reference) >
-              kAcceptableErrorM) {
-            ++num_voxels_over_threshold;
-          }
-        }
-      }
-    }
-  }
-  ASSERT_GT(total_num_voxels_observed, 0);
-  EXPECT_EQ(num_voxels_over_threshold, 0);
 }
+
+INSTANTIATE_TEST_CASE_P(ParameterizedTwoResEsdfTests, TwoResEsdfIntegratorTest,
+                        ::testing::Values(Obstacle::kBox,
+                                          Obstacle::kBoxWithSphere,
+                                          Obstacle::kBoxWithCube));
 
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
