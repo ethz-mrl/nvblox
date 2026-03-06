@@ -1669,23 +1669,25 @@ __global__ void sweepBlockBandKernel(
     if (empty_esdf_block != nullptr) {
       // TODO(@bmicha) improve / replace brute for check.
       // Brute force approach to check for every boundary parent if another
-      // boundary's parent is closer. RW race conditions don't matter since we
-      // do not alter the values but just shuffle them around and maybe remove
-      // some.
+      // boundary's parent is closer.
       constexpr int kNumBoundaryVoxels = EmptyEsdfBlock::kNumBoundaryVoxels;
       const int stride = blockDim.x * blockDim.y;
+      const int tid = threadIdx.x + blockDim.x * threadIdx.y;
+
+      Index3D best_directions[kNumBoundaryVoxels / (8 * 8) + 1];
+      int num_assigned = 0;
+
       // Iterate over all boundary voxels (bv).
-      for (int current_bv_flat_id = threadIdx.x + blockDim.x * threadIdx.y;
+      for (int current_bv_flat_id = tid;
            current_bv_flat_id < kNumBoundaryVoxels;
            current_bv_flat_id += stride) {
         const Index3D current_bv_idx =
             getBoundaryVoxelIndexFromFlatIndex(current_bv_flat_id);
-        Index3D current_bv_parent_direction =
+        Index3D best_parent_direction =
             empty_esdf_block->boundary_parent_directions[current_bv_flat_id];
-        int current_distance = (current_bv_parent_direction == Index3D::Zero())
-                                   ? max_squared_esdf_distance_vox + 1
-                                   : current_bv_parent_direction.squaredNorm();
-
+        int best_distance = (best_parent_direction == Index3D::Zero())
+                                ? max_squared_esdf_distance_vox + 1
+                                : best_parent_direction.squaredNorm();
         for (int other_bv_flat_id = 0; other_bv_flat_id < kNumBoundaryVoxels;
              ++other_bv_flat_id) {
           // Do not compare to self.
@@ -1695,24 +1697,36 @@ __global__ void sweepBlockBandKernel(
 
           const Index3D other_bv_idx =
               getBoundaryVoxelIndexFromFlatIndex(other_bv_flat_id);
-          Index3D other_bv_parent_direction =
+          const Index3D other_bv_parent_direction =
               empty_esdf_block->boundary_parent_directions[other_bv_flat_id];
           if (other_bv_parent_direction == Index3D::Zero()) {
             continue;
           }
 
-          Index3D direction_to_other_parent =
+          const Index3D direction_to_other_parent =
               other_bv_parent_direction + (other_bv_idx - current_bv_idx);
-          int distance_to_other_parent =
+          const int distance_to_other_parent =
               direction_to_other_parent.squaredNorm();
 
-          if (distance_to_other_parent < current_distance) {
-            empty_esdf_block->boundary_parent_directions[current_bv_flat_id] =
-                direction_to_other_parent;
-            current_bv_parent_direction = direction_to_other_parent;
-            current_distance = distance_to_other_parent;
+          if (distance_to_other_parent < best_distance) {
+            best_parent_direction = direction_to_other_parent;
+            best_distance = distance_to_other_parent;
           }
         }
+        // Write best to buffer.
+        best_directions[num_assigned] = best_parent_direction;
+        ++num_assigned;
+      }
+
+      // Prevent race by finishing all reads before flushing to global memory.
+      __syncthreads();
+      num_assigned = 0;
+      for (int current_bv_flat_id = tid;
+           current_bv_flat_id < kNumBoundaryVoxels;
+           current_bv_flat_id += stride) {
+        empty_esdf_block->boundary_parent_directions[current_bv_flat_id] =
+            best_directions[num_assigned];
+        ++num_assigned;
       }
     }
   }
