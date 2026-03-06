@@ -286,7 +286,8 @@ void EsdfIntegrator::integrateBlocksTemplate(
                &updated_indices_device_, &to_clear_indices_device_);
   mark_timer.Stop();
 
-  if (!to_clear_indices_device_.empty()) {
+  if (!to_clear_indices_device_.empty() ||
+      !block_indices_empty_esdf_host_.empty()) {
     timing::Timer compute_timer("esdf/integrate/clear");
     std::vector<Index3D> to_clear_indices =
         to_clear_indices_device_.toVectorAsync(*cuda_stream_);
