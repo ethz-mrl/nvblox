@@ -26,6 +26,7 @@ limitations under the License.
 #include "nvblox/io/image_io.h"
 #include "nvblox/io/ply_writer.h"
 #include "nvblox/io/pointcloud_io.h"
+#include "nvblox/map/internal/cuda/empty_esdf_boundary_indexing.cuh"
 #include "nvblox/map/layer.h"
 #include "nvblox/map/voxels.h"
 #include "nvblox/mapper/mapper.h"
@@ -1211,6 +1212,18 @@ TEST(TwoResIntegratorHelperTest, EmptySpaceIndexSplitter) {
         mapper.empty_space_layer().getBlockAtIndex(empty_block_index);
 
     EXPECT_TRUE(empty_space_block_ptr->is_empty);
+  }
+}
+
+TEST(TwoResIntegratorHelperTest, EmptyEsdfBoundaryIndexingTest) {
+  int kNumBoundaryVoxels = EmptyEsdfBlock::kNumBoundaryVoxels;
+
+  for (int flat_idx_in = 0; flat_idx_in < kNumBoundaryVoxels; ++flat_idx_in) {
+    Index3D boundary_idx = getBoundaryVoxelIndexFromFlatIndex(flat_idx_in);
+    CHECK(isBoundaryVoxelIndex(boundary_idx));
+
+    int flat_idx_out = getFlatIndexFromBoundaryVoxelIndex(boundary_idx);
+    CHECK_EQ(flat_idx_in, flat_idx_out);
   }
 }
 

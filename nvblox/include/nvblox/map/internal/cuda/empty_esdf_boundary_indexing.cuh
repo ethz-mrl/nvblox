@@ -21,15 +21,17 @@ namespace nvblox {
 
 constexpr int kInvalidBoundaryFlatIndex = -1;
 
-inline Index3D getBoundaryVoxelIndexFromFlatIndexOnHost(int flat_index) {
+__host__ __device__ inline Index3D getBoundaryVoxelIndexFromFlatIndex(
+    int flat_index) {
   constexpr int kVoxelsPerSide = VoxelBlock<bool>::kVoxelsPerSide;
   constexpr int kNumVoxelsPerFace = kVoxelsPerSide * kVoxelsPerSide;
   constexpr int kNumVoxelsPerStrip = (kVoxelsPerSide - 2) * kVoxelsPerSide;
   constexpr int kNumVoxelsPerInnerFace =
       (kVoxelsPerSide - 2) * (kVoxelsPerSide - 2);
 
-  CHECK(flat_index >= 0);
-  CHECK(flat_index < EmptyEsdfBlock::kNumBoundaryVoxels);
+  NVBLOX_CHECK(flat_index >= 0, "Invalid flat_index.");
+  NVBLOX_CHECK(flat_index < EmptyEsdfBlock::kNumBoundaryVoxels,
+               "Invalid flat_index.");
 
   if (flat_index < kNumVoxelsPerFace) {
     return Index3D(0, flat_index / kVoxelsPerSide, flat_index % kVoxelsPerSide);
@@ -64,57 +66,47 @@ inline Index3D getBoundaryVoxelIndexFromFlatIndexOnHost(int flat_index) {
                  1 + flat_index % (kVoxelsPerSide - 2), kVoxelsPerSide - 1);
 }
 
-__device__ __constant__ int
-    kBoundaryVoxelLut[EmptyEsdfBlock::kNumBoundaryVoxels][3];
-__device__ __constant__ int
-    kBoundaryFlatIndexLut[VoxelBlock<bool>::kVoxelsPerSide]
-                         [VoxelBlock<bool>::kVoxelsPerSide]
-                         [VoxelBlock<bool>::kVoxelsPerSide];
-
-inline void initializeBoundaryVoxelLutOnGPU() {
-  static bool initialized = false;
-  if (initialized) {
-    return;
-  }
-
-  int host_lut_from_flat[EmptyEsdfBlock::kNumBoundaryVoxels][3];
-
+__host__ __device__ inline int getFlatIndexFromBoundaryVoxelIndex(
+    const Index3D& idx) {
   constexpr int kVoxelsPerSide = VoxelBlock<bool>::kVoxelsPerSide;
-  int host_lut_to_flat[kVoxelsPerSide][kVoxelsPerSide][kVoxelsPerSide];
-  // Fill LUT with invalid sentinel.
-  std::fill_n(&host_lut_to_flat[0][0][0],
-              kVoxelsPerSide * kVoxelsPerSide * kVoxelsPerSide,
-              kInvalidBoundaryFlatIndex);
+  constexpr int kNumVoxelsPerFace = kVoxelsPerSide * kVoxelsPerSide;
+  constexpr int kNumVoxelsPerStrip = (kVoxelsPerSide - 2) * kVoxelsPerSide;
+  constexpr int kNumVoxelsPerInnerFace =
+      (kVoxelsPerSide - 2) * (kVoxelsPerSide - 2);
 
-  for (int i = 0; i < EmptyEsdfBlock::kNumBoundaryVoxels; ++i) {
-    const Index3D voxel_index = getBoundaryVoxelIndexFromFlatIndexOnHost(i);
-    host_lut_from_flat[i][0] = voxel_index.x();
-    host_lut_from_flat[i][1] = voxel_index.y();
-    host_lut_from_flat[i][2] = voxel_index.z();
+  const int x = idx.x(), y = idx.y(), z = idx.z();
 
-    host_lut_to_flat[voxel_index.x()][voxel_index.y()][voxel_index.z()] = i;
+  if (x == 0) {
+    return y * kVoxelsPerSide + z;
+  }
+  if (x == kVoxelsPerSide - 1) {
+    return kNumVoxelsPerFace + y * kVoxelsPerSide + z;
+  }
+  if (y == 0) {
+    return 2 * kNumVoxelsPerFace + (x - 1) * kVoxelsPerSide + z;
+  }
+  if (y == kVoxelsPerSide - 1) {
+    return 2 * kNumVoxelsPerFace + kNumVoxelsPerStrip +
+           (x - 1) * kVoxelsPerSide + z;
+  }
+  if (z == 0) {
+    return 2 * kNumVoxelsPerFace + 2 * kNumVoxelsPerStrip +
+           (x - 1) * (kVoxelsPerSide - 2) + (y - 1);
+  }
+  if (z == kVoxelsPerSide - 1) {
+    return 2 * kNumVoxelsPerFace + 2 * kNumVoxelsPerStrip +
+           kNumVoxelsPerInnerFace + (x - 1) * (kVoxelsPerSide - 2) + (y - 1);
   }
 
-  checkCudaErrors(cudaMemcpyToSymbol(kBoundaryVoxelLut, host_lut_from_flat,
-                                     sizeof(host_lut_from_flat)));
-
-  checkCudaErrors(cudaMemcpyToSymbol(kBoundaryFlatIndexLut, host_lut_to_flat,
-                                     sizeof(host_lut_to_flat)));
-  initialized = true;
+  return kInvalidBoundaryFlatIndex;
 }
 
-__device__ inline Index3D getBoundaryVoxelIndexFromFlatIndex(int flat_index) {
-  return Index3D(static_cast<int>(kBoundaryVoxelLut[flat_index][0]),
-                 static_cast<int>(kBoundaryVoxelLut[flat_index][1]),
-                 static_cast<int>(kBoundaryVoxelLut[flat_index][2]));
-}
-
-__device__ inline int getFlatIndexFromBoundaryVoxelIndex(Index3D voxel_index) {
-  int idx =
-      kBoundaryFlatIndexLut[voxel_index.x()][voxel_index.y()][voxel_index.z()];
-  NVBLOX_CHECK(idx != kInvalidBoundaryFlatIndex,
-               "Out of bounds boundary voxel flat index.");
-  return idx;
+__host__ __device__ inline bool isBoundaryVoxelIndex(
+    const Index3D& voxel_index) {
+  constexpr int kLast = VoxelBlock<bool>::kVoxelsPerSide - 1;
+  return voxel_index.x() == 0 || voxel_index.x() == kLast ||
+         voxel_index.y() == 0 || voxel_index.y() == kLast ||
+         voxel_index.z() == 0 || voxel_index.z() == kLast;
 }
 
 }  // namespace nvblox

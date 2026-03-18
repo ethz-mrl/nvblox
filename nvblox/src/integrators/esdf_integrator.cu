@@ -38,9 +38,7 @@ EsdfIntegrator::EsdfIntegrator()
     : EsdfIntegrator(std::make_shared<CudaStreamOwning>()) {}
 
 EsdfIntegrator::EsdfIntegrator(std::shared_ptr<CudaStream> cuda_stream)
-    : cuda_stream_(cuda_stream) {
-  initializeBoundaryVoxelLutOnGPU();
-}
+    : cuda_stream_(cuda_stream) {}
 
 float EsdfIntegrator::max_esdf_distance_m() const {
   return max_esdf_distance_m_;
